@@ -1,0 +1,40 @@
+# Anonymizer Configuration File
+# All values shown are defaults
+
+# Global settings
+debug = false
+log_level = "INFO"
+
+[blur]
+strength = 15
+type = "gaussian"
+
+[detection]
+face_threshold = 0.5
+plate_threshold = 0.6
+
+[model]
+# Use the bundled default model or point to a custom checkpoint.
+name = "1280_nano"
+
+[tracking]
+type = "bytetrack"
+use_offline_linker = true
+
+[tracking.params]
+bbox_dilate_pct = 0.2
+confirm_after_N = 2
+distance_gate = 0.4
+high_thresh = 0.6
+low_score_pool_delta = 0.2
+low_thresh = 0.2
+max_misses_M = 10
+offline_linker_max_misses = 30
+offline_linker_per_frame_gate = 0.05
+temporal_smooth_alpha = 0.6
+use_low_score_pool = true
+
+[video]
+codec = "h264"
+
+# quality = 23  # Uncomment and set for custom quality

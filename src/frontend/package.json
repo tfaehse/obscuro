@@ -1,0 +1,86 @@
+{
+  "name": "blur-gui",
+  "version": "1.0.0",
+  "description": "Video anonymization tool with AI-powered face and license plate blurring",
+  "main": "dist/electron/main/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "npm run build:ts && cross-env NODE_ENV=development electron .",
+    "start": "npm run build:ts && electron .",
+    "build:ts": "tsc",
+    "build:ts:watch": "tsc --watch",
+    "build": "npm run build:ts && electron-builder",
+    "build:win": "npm run build:ts && electron-builder --win",
+    "build:mac": "npm run build:ts && electron-builder --mac",
+    "build:linux": "npm run build:ts && electron-builder --linux",
+    "dist": "npm run build:ts && electron-builder --publish=never",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit"
+  },
+  "build": {
+    "appId": "com.yourname.blur-gui",
+    "productName": "Obscuro",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "dist/**/*",
+      "app/renderer/index.html",
+      "app/renderer/backend.html",
+      "app/renderer/media/**",
+      "app/renderer/icon.png",
+      "app/electron/preload/preload.cjs",
+      "app/electron/icon.png",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+      "!**/node_modules/*.d.ts",
+      "!**/node_modules/.bin",
+      "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
+      "!.editorconfig",
+      "!**/._*",
+      "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}",
+      "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}",
+      "!**/{appveyor.yml,.travis.yml,circle.yml}",
+      "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}"
+    ],
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "extraResources": [
+      {
+        "from": "../..",
+        "to": "backend",
+        "filter": [
+          "pyproject.toml",
+          "uv.lock",
+          "config/**",
+          "src/anonymizer/**",
+          "src/blur_api/**",
+          "src/blur_gui/**",
+          "models/*.onnx"
+        ]
+      }
+    ]
+  },
+  "author": "Thomas F\u00e4hse",
+  "license": "AGPL-3.0-or-later",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "cross-env": "^7.0.3",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {}
+}

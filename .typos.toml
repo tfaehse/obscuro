@@ -1,0 +1,25 @@
+[default]
+# Extend the default dictionary with custom words
+extend-words = {dashcam = "dashcam", anonymizer = "anonymizer", onnx = "onnx", onnxruntime = "onnxruntime", onnxslim = "onnxslim", AGPL = "AGPL", pyproject = "pyproject", ND = "ND"}
+
+[default.extend-identifiers]
+opencv = "opencv"
+# Allow certain identifiers that might be flagged as typos
+tfaehse = "tfaehse"
+ultralytics = "ultralytics"
+
+[files]
+# Ignore certain file patterns
+extend-exclude = [
+  "*.lock",
+  "*.egg-info",
+  "build/",
+  "__pycache__/",
+  "*.pyc",
+  "*.onnx",
+  "*.png",
+  "*.jpg",
+  "*.jpeg",
+  "node_modules/",
+  ".git/"
+]

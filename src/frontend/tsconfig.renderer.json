@@ -1,0 +1,11 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "target": "ES2022",
+    "outDir": "../../dist/renderer"
+  },
+  "include": [
+    "../app/renderer/**/*"
+  ]
+}

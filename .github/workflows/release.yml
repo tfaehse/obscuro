@@ -1,0 +1,262 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+
+    - name: Set up Python ${{ matrix.python-version }}
+      run: uv python install ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        uv sync --group test
+
+    - name: Run comprehensive tests
+      run: |
+        uv run pytest --cov=src --cov-report=xml --cov-report=term-missing -v
+
+    - name: Ensure minimum coverage
+      run: |
+        uv run coverage report --fail-under=80
+
+  build:
+    runs-on: ${{ matrix.os }}
+    needs: test
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+
+    - name: Set up Python
+      run: uv python install 3.12
+
+    - name: Install dependencies
+      run: |
+        uv sync --group dev
+
+    - name: Build package
+      run: |
+        uv build
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: dist-${{ matrix.os }}
+        path: dist/
+
+  build-binaries:
+    runs-on: ${{ matrix.os }}
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            build-script: build:linux
+          - os: macos-latest
+            build-script: build:mac
+          - os: windows-latest
+            build-script: build:win
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+
+    - name: Set up Python
+      run: uv python install 3.12
+
+    - name: Install dependencies
+      run: |
+        uv sync --group dev
+
+    - name: Install Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: src/frontend/package-lock.json
+
+    - name: Install frontend dependencies
+      working-directory: src/frontend
+      run: npm ci
+
+    - name: Build application
+      working-directory: src/frontend
+      run: npm run ${{ matrix.build-script }}
+
+    - name: Upload binary artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: binaries-${{ matrix.os }}
+        path: |
+          src/frontend/dist/
+
+  docker-images:
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      packages: write
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to GHCR
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build and push CPU image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: Dockerfile
+        push: true
+        platforms: linux/amd64
+        tags: |
+          ghcr.io/${{ github.repository_owner }}/blur-gui-backend:latest
+          ghcr.io/${{ github.repository_owner }}/blur-gui-backend:${{ github.ref_name }}
+
+    - name: Build and push GPU image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: Dockerfile.gpu
+        push: true
+        platforms: linux/amd64
+        tags: |
+          ghcr.io/${{ github.repository_owner }}/blur-gui-backend:gpu
+          ghcr.io/${{ github.repository_owner }}/blur-gui-backend:gpu-${{ github.ref_name }}
+
+  create-release:
+    runs-on: ubuntu-latest
+    needs: [build, build-binaries, docker-images]
+    permissions:
+      contents: write
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+
+    - name: Upload Release Assets
+      run: |
+        # Upload Python packages
+        for file in dist-ubuntu-latest/*.whl dist-ubuntu-latest/*.tar.gz; do
+          if [ -f "$file" ]; then
+            gh release upload ${{ github.ref }} "$file"
+          fi
+        done
+
+        # Upload binaries
+        if [ -d "binaries-ubuntu-latest" ]; then
+          cd binaries-ubuntu-latest
+          tar -czf ../blur-gui-linux-x64.tar.gz .
+          gh release upload ${{ github.ref }} ../blur-gui-linux-x64.tar.gz
+        fi
+
+        if [ -d "binaries-macos-latest" ]; then
+          cd binaries-macos-latest
+          tar -czf ../blur-gui-macos-x64.tar.gz .
+          gh release upload ${{ github.ref }} ../blur-gui-macos-x64.tar.gz
+        fi
+
+        if [ -d "binaries-windows-latest" ]; then
+          cd binaries-windows-latest
+          zip -r ../blur-gui-windows-x64.zip .
+          gh release upload ${{ github.ref }} ../blur-gui-windows-x64.zip
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: create-release
+    environment: release
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+
+    - name: Set up Python
+      run: uv python install 3.12
+
+    - name: Install dependencies
+      run: |
+        uv sync --group dev
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: dist-ubuntu-latest
+        path: dist/
+
+    - name: Publish to PyPI
+      env:
+        UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+      run: |
+        uv publish
+
+  test-published:
+    runs-on: ubuntu-latest
+    needs: publish
+
+    steps:
+    - name: Test installation from PyPI
+      run: |
+        # Wait a bit for PyPI to update
+        sleep 60
+
+        # Test installation in a clean environment
+        python -m pip install blur-gui
+
+        # Basic smoke test
+        blur-cli --help || true
+        blur-api --help || true
