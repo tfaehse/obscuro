@@ -1,4 +1,5 @@
 import threading
+import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, ClassVar
@@ -10,6 +11,7 @@ import polars as pl
 from .cancellation import CancellationException
 from .io.blur_rois import blur_rois, convert_relative_to_absolute_rois
 from .io.video import blur_video_av, get_video_info
+from .utils.progress import ProgressRateEstimator, format_progress_message
 
 
 class Blurrer:
@@ -121,6 +123,8 @@ class Blurrer:
         )
 
         debug_mode = self.blur_type == "debug"
+        progress_rate = ProgressRateEstimator()
+        last_progress_time = time.perf_counter()
 
         def _rows_to_boxes(rows: Sequence[dict[str, Any]]):
             return [(float(r["x1"]), float(r["y1"]), float(r["x2"]), float(r["y2"])) for r in rows]
@@ -150,12 +154,22 @@ class Blurrer:
 
             return frame
 
-        def progress_update(frame_num: int, total: int, message: str):
+        def progress_update(frame_num: int, total: int, _raw_message: str):
+            nonlocal last_progress_time
             if self.progress_callback:
-                percentage = int((frame_num / total) * 100) if total > 0 else 0
-                self.progress_callback(
-                    percentage, "Blurring", f"Processing frame {frame_num}/{total}"
+                now = time.perf_counter()
+                duration = max(1e-6, now - last_progress_time)
+                last_progress_time = now
+                fps = progress_rate.record(1, duration)
+                percentage = int((frame_num / total) * 100) if total > 0 else min(99, frame_num)
+                remaining = max(total - frame_num, 0) if total > 0 else None
+                prefix = (
+                    f"Processing frame {frame_num}/{total}"
+                    if total > 0
+                    else f"Processing frame {frame_num}"
                 )
+                message_with_rate = format_progress_message(prefix, fps, remaining)
+                self.progress_callback(percentage, "Blurring", message_with_rate)
 
         blur_video_av(
             input_path=input_path,

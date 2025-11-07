@@ -29,13 +29,18 @@ def test_throttle_emits_on_percent_step_and_time(monkeypatch):
     assert len(calls) == 3
 
     cb(6, "stage", "msg2")
-    assert calls[-1] == (6, "stage", "msg2")
-    assert len(calls) == 4
+    assert calls[-1] == (6, "stage", "msg")
+    assert len(calls) == 3
 
     cb(6, "stage-2", "msg2")
+    assert calls[-1] == (6, "stage", "msg")
+    assert len(calls) == 3
+
+    clock["value"] += 2.1
+    cb(6, "stage-2", "msg2")
     assert calls[-1] == (6, "stage-2", "msg2")
-    assert len(calls) == 5
+    assert len(calls) == 4
 
     cb(100, "done", "finished")
     assert calls[-1] == (100, "done", "finished")
-    assert len(calls) == 6
+    assert len(calls) == 5

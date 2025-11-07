@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -10,6 +11,7 @@ import polars as pl
 from scipy.optimize import linear_sum_assignment
 
 from anonymizer.config import TrackerParams
+from anonymizer.utils.progress import ProgressRateEstimator, format_progress_message
 
 from .common import Detection, TrackObservation, TrackState, batched_center_distance
 from .kalman import initiate, mean_to_tlwh
@@ -99,8 +101,16 @@ class BaseTracker:
 
         detections = detections.sort("frame")
         outputs: list[dict] = []
+        total_frames = (
+            detections.get_column("frame").n_unique()
+            if "frame" in detections.columns
+            else detections.height
+        )
+        processed_frames = 0
+        rate_tracker = ProgressRateEstimator()
 
         for frame_key, frame_df in detections.group_by("frame", maintain_order=True):
+            frame_start = time.perf_counter()
             frame_idx = frame_key[0] if isinstance(frame_key, tuple) else int(frame_key)
             frame_detections, low_conf_detections = self._polars_to_detections(frame_idx, frame_df)
             frame_outputs = self._process_frame(frame_idx, frame_detections, low_conf_detections)
@@ -108,6 +118,20 @@ class BaseTracker:
                 self._timeline.append(obs)
                 if obs.should_blur:
                     outputs.append(obs.as_dict())
+
+            processed_frames += 1
+            duration = max(1e-6, time.perf_counter() - frame_start)
+            fps = rate_tracker.record(1, duration)
+            if self.progress_callback:
+                remaining = max(total_frames - processed_frames, 0) if total_frames > 0 else None
+                if total_frames > 0:
+                    percentage = int(min(100, (processed_frames / total_frames) * 100))
+                    prefix = f"Processed frame {processed_frames}/{total_frames}"
+                else:
+                    percentage = min(99, processed_frames)
+                    prefix = f"Processed frame {processed_frames}"
+                message = format_progress_message(prefix, fps, remaining)
+                self.progress_callback(percentage, "Tracking", message)
 
         return pl.DataFrame(outputs)
 

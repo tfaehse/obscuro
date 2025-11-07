@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-import datetime
 import logging
 import math
 import threading
@@ -20,6 +19,7 @@ from anonymizer.sahi_integration import DEFAULT_CATEGORY_MAPPING, SahiOnnxDetect
 
 from .cancellation import CancellationException
 from .io.video import get_video_info, iter_frame_batches
+from .utils.progress import ProgressRateEstimator, format_progress_message
 
 DEFAULT_MODELS_DIR = get_models_dir()
 
@@ -639,8 +639,8 @@ class FrameDetector(BaseDetector):
 
         processed_batches = 0
         processed_frames = 0
-        batch_times: list[float] = []
         batch_start_time = time.perf_counter()
+        rate_tracker = ProgressRateEstimator()
         prefetch = max(self.batch_size * 2, 4)
 
         for batch in iter_frame_batches(path, self.batch_size, prefetch=prefetch):
@@ -673,25 +673,23 @@ class FrameDetector(BaseDetector):
             processed_batches += 1
             processed_frames += len(batch)
             batch_duration = max(1e-6, time.perf_counter() - batch_start_time)
-            batch_times.append(batch_duration)
-            if len(batch_times) > 5:
-                batch_times.pop(0)
-            avg_time = sum(batch_times) / len(batch_times)
-            fps = len(batch) / avg_time if avg_time > 0 else 0.0
+            fps = rate_tracker.record(len(batch), batch_duration)
             if total_frames_meta > 0:
                 remaining_frames = max(total_frames_meta - processed_frames, 0)
-                eta_seconds = remaining_frames / fps if fps > 0 else 0.0
-                eta_formatted = (
-                    str(datetime.timedelta(seconds=int(eta_seconds))) if eta_seconds > 0 else "0:00"
-                )
                 percentage = int(min(100, (processed_frames / total_frames_meta) * 100))
-                message = (
-                    f"Processed batch {processed_batches}/{total_batches} | "
-                    f"{fps:.2f}fps | eta {eta_formatted}"
+                prefix = (
+                    f"Processed batch {processed_batches}/{total_batches}"
+                    if total_batches
+                    else f"Processed {processed_frames}/{total_frames_meta} frames"
                 )
+                message = format_progress_message(prefix, fps, remaining_frames)
             else:
                 percentage = min(99, max(1, processed_batches))
-                message = f"Processed {processed_frames} frames | {fps:.2f}fps"
+                message = format_progress_message(
+                    f"Processed {processed_frames} frames",
+                    fps,
+                    None,
+                )
             self._report_progress(percentage, message)
             batch_start_time = time.perf_counter()
 
@@ -913,8 +911,8 @@ class SahiDetector(BaseDetector):
         video_info = get_video_info(path)
         total_frames_meta = int(video_info.get("frame_count") or 0)
         processed_frames = 0
-        batch_times: list[float] = []
         batch_start_time = time.perf_counter()
+        rate_tracker = ProgressRateEstimator()
         prefetch = max(self.batch_size * 2, 4)
 
         for batch in iter_frame_batches(path, self.batch_size, prefetch=prefetch):
@@ -940,25 +938,22 @@ class SahiDetector(BaseDetector):
 
             processed_frames += len(batch)
             batch_duration = max(1e-6, time.perf_counter() - batch_start_time)
-            batch_times.append(batch_duration)
-            if len(batch_times) > 5:
-                batch_times.pop(0)
-            avg_time = sum(batch_times) / len(batch_times)
-            fps = len(batch) / avg_time if avg_time > 0 else 0.0
+            fps = rate_tracker.record(len(batch), batch_duration)
             if total_frames_meta > 0:
                 remaining_frames = max(total_frames_meta - processed_frames, 0)
-                eta_seconds = remaining_frames / fps if fps > 0 else 0.0
-                eta_formatted = (
-                    str(datetime.timedelta(seconds=int(eta_seconds))) if eta_seconds > 0 else "0:00"
-                )
                 percentage = int(min(100, (processed_frames / total_frames_meta) * 100))
-                message = (
-                    f"Processed {processed_frames}/{total_frames_meta} frames "
-                    f"| {fps:.2f}fps | eta {eta_formatted}"
+                message = format_progress_message(
+                    f"Processed {processed_frames}/{total_frames_meta} frames",
+                    fps,
+                    remaining_frames,
                 )
             else:
                 percentage = min(99, max(1, processed_frames))
-                message = f"Processed {processed_frames} frames | {fps:.2f}fps"
+                message = format_progress_message(
+                    f"Processed {processed_frames} frames",
+                    fps,
+                    None,
+                )
             self._report_progress(percentage, message)
             batch_start_time = time.perf_counter()
 
