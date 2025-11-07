@@ -74,7 +74,9 @@ export class ProgressUI {
 
   private updateProgress(event: any): void {
     this.progressBar.value = event.progress;
-    this.statusText.textContent = store.getProgressMessage();
+    const message = store.getProgressMessage();
+    const prefix = typeof event.stage === 'string' && event.stage.length > 0 ? `${event.stage}: ` : '';
+    this.statusText.textContent = `${prefix}${message}`;
 
     // Handle different status types
     if (event.status === 'done') {
@@ -95,9 +97,13 @@ export class ProgressUI {
   }
 
   // Public methods for external control
-  setProgress(value: number, message: string): void {
+  setProgress(value: number, message: string, stage?: string): void {
     this.progressBar.value = value;
-    this.statusText.textContent = message;
+    if (stage && stage.length > 0) {
+      this.statusText.textContent = `${stage}: ${message}`;
+    } else {
+      this.statusText.textContent = message;
+    }
   }
 
   showSuccess(message: string): void {
