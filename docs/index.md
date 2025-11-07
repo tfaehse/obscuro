@@ -93,7 +93,7 @@ uvicorn blur_api.serve:app --reload
 
 ## Key Features
 
-- **Multiple blur types**: Gaussian, pixelate, blackout, black boxes
+- **Multiple blur types**: Gaussian, pixelate, blackout boxes
 - **Advanced tracking**: ByteTrack, BotSort, Hybrid SOT, or simple frame-by-frame
 - **SAHI support**: Tiled inference for high-resolution videos
 - **GPU acceleration**: Automatic GPU detection with CPU fallback

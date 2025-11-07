@@ -344,7 +344,6 @@ class TestBlurType:
         assert BlurType.GAUSSIAN == "gaussian"
         assert BlurType.PIXELATE == "pixelate"
         assert BlurType.BLACKOUT == "blackout"
-        assert BlurType.BLACK == "black"
         assert BlurType.DEBUG == "debug"
 
     def test_blur_type_from_string(self):

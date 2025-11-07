@@ -11,7 +11,7 @@ export interface ModelInfo {
   immutable?: boolean;
 }
 
-export type BlurType = 'gaussian' | 'pixelate' | 'blackout' | 'black' | 'debug';
+export type BlurType = 'gaussian' | 'pixelate' | 'blackout' | 'debug';
 export interface BlurConfig {
   type: BlurType;
   strength: number; // 1-100

@@ -99,7 +99,6 @@ Type of blur to apply. Choices:
 - `gaussian` - Smooth Gaussian blur (default)
 - `pixelate` - Pixelated/mosaic effect
 - `blackout` - Solid black box
-- `black` - Black box (alias for blackout)
 - `debug` - Shows detection boxes without blurring
 
 ```bash

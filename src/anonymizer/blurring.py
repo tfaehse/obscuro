@@ -20,7 +20,6 @@ class Blurrer:
         "gaussian",
         "pixelate",
         "blackout",
-        "black",
         "debug",
     ]
 
@@ -56,7 +55,7 @@ class Blurrer:
         :param blur_type: Type of blur to apply. Options:
                          - "gaussian": Gaussian blur (smooth)
                          - "pixelate": Pixelation effect (blocky)
-                         - "blackout" or "black": Solid black rectangle
+                         - "blackout": Solid black rectangle
                          - "debug": Draw detection (red) and track (blue) boxes with IDs
         :param blur_strength: Intensity of the blur:
                              - For gaussian: kernel size (will be made odd)

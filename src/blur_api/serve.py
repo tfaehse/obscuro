@@ -377,7 +377,7 @@ async def get_config_options():
             "files": models,
         },
         "blur": {
-            "types": ["gaussian", "pixelate", "blackout", "black", "debug"],
+            "types": ["gaussian", "pixelate", "blackout", "debug"],
             "current_type": global_config.blur.type.value,
             "current_strength": global_config.blur.strength,
             "strength_range": [1, 100],

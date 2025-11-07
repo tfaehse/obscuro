@@ -460,7 +460,7 @@ Examples:
         subparser.add_argument("--model", help="Model to use (overrides config file)")
         subparser.add_argument(
             "--blur-type",
-            choices=["gaussian", "pixelate", "blackout", "black", "debug"],
+            choices=["gaussian", "pixelate", "blackout", "debug"],
             help="Type of blur to apply (overrides config file)",
         )
         subparser.add_argument(

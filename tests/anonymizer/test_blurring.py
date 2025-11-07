@@ -18,7 +18,7 @@ class TestBlurrer:
     def test_available_blur_types(self):
         """Test available blur types class method."""
         blur_types = Blurrer.get_available_blur_types()
-        expected_types = ["gaussian", "pixelate", "blackout", "black", "debug"]
+        expected_types = ["gaussian", "pixelate", "blackout", "debug"]
         assert blur_types == expected_types
 
     def test_is_valid_blur_type(self):
@@ -27,7 +27,6 @@ class TestBlurrer:
         assert Blurrer.is_valid_blur_type("GAUSSIAN") is True  # Case insensitive
         assert Blurrer.is_valid_blur_type("pixelate") is True
         assert Blurrer.is_valid_blur_type("blackout") is True
-        assert Blurrer.is_valid_blur_type("black") is True
         assert Blurrer.is_valid_blur_type("debug") is True
         assert Blurrer.is_valid_blur_type("invalid") is False
 
@@ -108,14 +107,6 @@ class TestBlurrer:
     def test_blackout_blur_application(self, sample_image):
         """Test blackout blur application."""
         blurrer = Blurrer(blur_type="blackout")
-        roi = (0.1, 0.1, 0.2, 0.2)
-        result = blurrer.blur_frame(sample_image, roi)
-        assert result is not None
-        assert result.shape == sample_image.shape
-
-    def test_black_blur_application(self, sample_image):
-        """Test black blur application (alias for blackout)."""
-        blurrer = Blurrer(blur_type="black")
         roi = (0.1, 0.1, 0.2, 0.2)
         result = blurrer.blur_frame(sample_image, roi)
         assert result is not None

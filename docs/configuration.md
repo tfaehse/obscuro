@@ -132,13 +132,13 @@ blur-cli image input.jpg --model /path/to/custom_model.onnx
 ### `blur.type`
 **Type:** String
 **Default:** `"gaussian"`
-**Choices:** `gaussian`, `pixelate`, `blackout`, `black`, `debug`
+**Choices:** `gaussian`, `pixelate`, `blackout`, `debug`
 
 Type of blur effect to apply:
 
 - **`gaussian`** - Smooth Gaussian blur (most natural looking)
 - **`pixelate`** - Pixelated/mosaic effect
-- **`blackout`** / **`black`** - Solid black boxes
+- **`blackout`** - Solid black boxes
 - **`debug`** - Shows bounding boxes without blurring (for debugging)
 
 **TOML:**

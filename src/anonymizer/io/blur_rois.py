@@ -57,7 +57,7 @@ def blur_rois(
                 )
                 result[y : y + h, x : x + w] = pixelated_roi
 
-        elif blur_type in ["blackout", "black"]:
+        elif blur_type == "blackout":
             # Black rectangle
             result[y : y + h, x : x + w] = 0
 

@@ -24,7 +24,6 @@ class BlurType(str, Enum):
     GAUSSIAN = "gaussian"
     PIXELATE = "pixelate"
     BLACKOUT = "blackout"
-    BLACK = "black"
     DEBUG = "debug"
 
 

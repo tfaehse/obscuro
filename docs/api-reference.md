@@ -102,7 +102,7 @@ Get available configuration options and current settings.
     ]
   },
   "blur": {
-    "types": ["gaussian", "pixelate", "blackout", "black", "debug"],
+    "types": ["gaussian", "pixelate", "blackout", "debug"],
     "current_type": "gaussian",
     "current_strength": 10,
     "strength_range": [1, 100]
