@@ -143,21 +143,10 @@ jobs:
         context: .
         file: Dockerfile
         push: true
-        platforms: linux/amd64
+        platforms: linux/amd64,linux/arm64
         tags: |
           ghcr.io/${{ github.repository_owner }}/blur-gui-backend:latest
           ghcr.io/${{ github.repository_owner }}/blur-gui-backend:${{ github.ref_name }}
-
-    - name: Build and push GPU image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: Dockerfile.gpu
-        push: true
-        platforms: linux/amd64
-        tags: |
-          ghcr.io/${{ github.repository_owner }}/blur-gui-backend:gpu
-          ghcr.io/${{ github.repository_owner }}/blur-gui-backend:gpu-${{ github.ref_name }}
 
   create-release:
     runs-on: ubuntu-latest
