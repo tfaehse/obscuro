@@ -292,6 +292,7 @@ export class ConfigController {
     this.setValue('use-sahi', config.detection.use_sahi);
     this.setValue('inference-size', config.detection.inference_size);
     this.setValue('sahi-overlap', config.detection.sahi_overlap_ratio);
+    this.updateBatchSizeLock(config.model.name);
     this.setValue('tracker-type', config.tracking.type);
     this.setValue('track-offline-linker', config.tracking.use_offline_linker);
 
@@ -533,6 +534,35 @@ export class ConfigController {
         uploadInput.value = '';
       }
     });
+  }
+
+  private isStaticBatchModel(name: string | null): boolean {
+    return typeof name === 'string' && name.endsWith('_b1');
+  }
+
+  private updateBatchSizeLock(modelName: string | null): void {
+    const locked = this.isStaticBatchModel(modelName);
+    const slider = document.getElementById('batch-size') as HTMLInputElement | null;
+    const badge = document.getElementById('batch-size-value');
+    const hint = document.getElementById('batch-size-lock-hint');
+    if (slider) {
+      slider.disabled = locked;
+      if (locked) {
+        slider.value = '1';
+        if (badge) {
+          badge.textContent = '1';
+        }
+        const current = store.getConfig();
+        if (current.detection.batch_size !== 1) {
+          store.updateConfig({
+            detection: { ...current.detection, batch_size: 1 },
+          } as Partial<AnonymizerConfig>);
+        }
+      }
+    }
+    if (hint) {
+      hint.classList.toggle('hidden', !locked);
+    }
   }
 
   private applyRange(elementId: string, range?: [number, number]): void {

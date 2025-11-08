@@ -22,10 +22,28 @@ from anonymizer import (
     create_config_template,
     load_config,
 )
-from anonymizer.config import BlurType, ConfigLayers, TrackerType, set_config
+from anonymizer.config import (
+    BlurType,
+    ConfigLayers,
+    TrackerType,
+    enforce_model_batch_constraints,
+    set_config,
+)
 from anonymizer.paths import ensure_default_model_present
 
 from .logging_setup import get_progress_logger, log_with_extra, setup_logging
+
+
+def apply_model_constraints_with_notice(config: AnonymizerConfig, logger: logging.Logger) -> None:
+    """Ensure config honors model-specific limits and inform the user."""
+    model_name = getattr(config.model, "name", None)
+    static_batch = bool(model_name and model_name.endswith("_b1"))
+    changed = enforce_model_batch_constraints(config, log=logger)
+    if static_batch and not changed:
+        logger.info(
+            "Model %s enforces batch size 1 (CoreML export). Batch size remains fixed.",
+            model_name,
+        )
 
 
 def blur_image(args):
@@ -59,6 +77,7 @@ def blur_image(args):
     try:
         # Load configuration and apply CLI overrides
         config = get_config_for_args(args)
+        apply_model_constraints_with_notice(config, logger)
 
         log_with_extra(
             logger,
@@ -140,6 +159,7 @@ def blur_video(args):
     try:
         # Load configuration and apply CLI overrides
         config = get_config_for_args(args)
+        apply_model_constraints_with_notice(config, logger)
 
         log_with_extra(
             logger,

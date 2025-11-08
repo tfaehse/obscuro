@@ -143,6 +143,8 @@ Default: `4`
 blur-cli image input.jpg --batch-size 8
 ```
 
+> Models whose filenames end with `_b1` are fixed-batch exports and always run with batch size 1. The CLI will log a notice and override larger values automatically. The reason is that CoreML on macOS currently does not support dynamic batch sizes, and the speedup over pure CPU inference can be significant even at batch size 1. Usage is only recommended on Apple Silicon hardware.
+
 ###### `--use-sahi` / `--no-use-sahi`
 Enable or disable SAHI (Slicing Aided Hyper Inference) for tiled inference. Useful for high-resolution images.
 

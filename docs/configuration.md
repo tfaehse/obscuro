@@ -260,6 +260,10 @@ batch_size = 8
 blur-cli video input.mp4 --batch-size 8
 ```
 
+> Models whose names end with `_b1` are optimized for Core ML and only support `batch_size = 1`.
+> The CLI/API/GUI automatically lock the batch slider to `1` whenever such a model is selected.
+> Using these models on non-Apple Silicon platforms largely makes no sense.
+
 ### `detection.use_sahi`
 **Type:** Boolean
 **Default:** `false`

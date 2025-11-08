@@ -6,6 +6,7 @@ Relies on typed Pydantic models with baked-in defaults and optional TOML overrid
 from __future__ import annotations
 
 import copy
+import logging
 from collections import OrderedDict
 from collections.abc import Iterable, Mapping
 from enum import Enum
@@ -565,3 +566,32 @@ def create_config_template(path: str | Path) -> None:
     config_path = Path(path)
     with open(config_path, "w") as f:
         f.write(CONFIG_TEMPLATE.strip())
+
+
+def model_requires_static_batch(model_name: str | None) -> bool:
+    """Return True when the selected model enforces batch size 1."""
+    if not model_name:
+        return False
+    return model_name.endswith("_b1")
+
+
+def enforce_model_batch_constraints(
+    config: AnonymizerConfig,
+    *,
+    log: logging.Logger | None = None,
+) -> bool:
+    """
+    Ensure the configuration honors model-specific batch size constraints.
+
+    Returns True if the batch size was modified.
+    """
+    model_name = getattr(config.model, "name", None)
+    if model_requires_static_batch(model_name) and config.detection.batch_size != 1:
+        if log:
+            log.info(
+                "Model %s enforces batch size 1 (CoreML export). Overriding configured batch size.",
+                model_name,
+            )
+        config.detection.batch_size = 1
+        return True
+    return False

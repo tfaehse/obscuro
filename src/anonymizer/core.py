@@ -13,7 +13,14 @@ import polars as pl
 
 from .blurring import Blurrer
 from .cancellation import CancellationException, CancellationMixin
-from .config import AnonymizerConfig, BlurType, TrackerParams, TrackerType, get_config
+from .config import (
+    AnonymizerConfig,
+    BlurType,
+    TrackerParams,
+    TrackerType,
+    enforce_model_batch_constraints,
+    get_config,
+)
 from .detection import Detector
 from .tracking import TrackerFactory, link_tracklets
 from .tracking.common import normalized_center
@@ -57,6 +64,7 @@ class Anonymizer(CancellationMixin):
             config = get_config()
 
         self.config = config
+        enforce_model_batch_constraints(self.config, log=logger)
         self._apply_logging_preferences()
 
         # Initialize components using configuration
