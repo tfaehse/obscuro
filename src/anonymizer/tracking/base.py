@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -11,12 +12,14 @@ import polars as pl
 from scipy.optimize import linear_sum_assignment
 
 from anonymizer.config import TrackerParams
+from anonymizer.io.video import iter_frames
 from anonymizer.utils.progress import ProgressRateEstimator, format_progress_message
 
 from .common import Detection, TrackObservation, TrackState, batched_center_distance
 from .kalman import initiate, mean_to_tlwh
 from .kalman import predict as kf_predict
 from .kalman import update as kf_update
+from .utils import prepare_frame_bgr
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +42,8 @@ class ActiveTrack:
     history: list[TrackObservation] = field(default_factory=list)
     visual_tracker: object | None = None
     debug_color: tuple[int, int, int] | None = None
+    vt_embeddings: list[np.ndarray] = field(default_factory=list, repr=False)
+    vt_embedding_rep: np.ndarray | None = field(default=None, repr=False)
 
     def current_tlwh(self) -> np.ndarray:
         if self.smoothed_tlwh is not None:
@@ -61,21 +66,27 @@ class BaseTracker:
         self.params = params or TrackerParams()
         self.cancel_event = cancel_event
         self.progress_callback = progress_callback
+        self._frame_iter: Iterator[tuple[int, np.ndarray]] | None = None
+        self._last_frame: np.ndarray | None = None
+        self._last_frame_idx: int | None = None
 
         self._tracks: list[ActiveTrack] = []
         self._retired_tracks: list[ActiveTrack] = []
         self._timeline: list[TrackObservation] = []
         self._next_id = 1
+        self._frames_processed = 0
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
     def set_video_source(self, source: Path | str | None) -> None:
         self.video_source = Path(source) if source else None
+        self._reset_frame_iterator()
 
     def reconfigure(self, params: TrackerParams) -> None:
         logger.info("Reconfiguring tracker parameters: %s", params.model_dump())
         self.params = params
+        self._reset_frame_iterator()
 
     def track(self, detections: pl.DataFrame) -> pl.DataFrame:
         if detections.is_empty():
@@ -120,6 +131,7 @@ class BaseTracker:
                     outputs.append(obs.as_dict())
 
             processed_frames += 1
+            self._frames_processed += 1
             duration = max(1e-6, time.perf_counter() - frame_start)
             fps = rate_tracker.record(1, duration)
             if self.progress_callback:
@@ -138,6 +150,42 @@ class BaseTracker:
     # ------------------------------------------------------------------
     # Core algorithm
     # ------------------------------------------------------------------
+    def _reset_frame_iterator(self) -> None:
+        if self._frame_iter is not None:
+            closer = getattr(self._frame_iter, "close", None)
+            if callable(closer):
+                with contextlib.suppress(Exception):
+                    closer()
+        self._frame_iter = None
+        self._last_frame = None
+        self._last_frame_idx = None
+
+    def _ensure_frame_iterator(self) -> None:
+        if self._frame_iter is None and self.video_source is not None:
+            with contextlib.suppress(Exception):
+                self._frame_iter = iter_frames(self.video_source, prefetch=1)
+
+    def _get_frame(self, frame_idx: int) -> np.ndarray | None:
+        if self.video_source is None:
+            return None
+        self._ensure_frame_iterator()
+        if self._frame_iter is None:
+            return None
+        if self._last_frame_idx is not None and frame_idx <= self._last_frame_idx:
+            return self._last_frame
+        try:
+            while self._last_frame_idx is None or self._last_frame_idx < frame_idx:
+                next_idx, frame = next(self._frame_iter)
+                self._last_frame = frame
+                self._last_frame_idx = next_idx
+        except StopIteration:
+            self._reset_frame_iterator()
+            return None
+        return self._last_frame
+
+    def _prepare_frame(self, frame: np.ndarray | None) -> np.ndarray | None:
+        return prepare_frame_bgr(frame)
+
     def _process_frame(
         self,
         frame_idx: int,
@@ -178,8 +226,25 @@ class BaseTracker:
             else:
                 survivors.append(track)
         self._tracks = survivors
+        self._prune_low_detection_rate()
 
         return observations
+
+    def _prune_low_detection_rate(self) -> None:
+        """Mark tracks as dead when detection rate falls below threshold."""
+        threshold = float(getattr(self.params, "min_detection_rate", 0.0) or 0.0)
+        if threshold <= 0.0:
+            return
+        survivors: list[ActiveTrack] = []
+        for track in self._tracks:
+            total = max(1, track.age)
+            rate = track.hits / float(total)
+            if rate < threshold:
+                track.state = TrackState.DEAD
+                self._retired_tracks.append(track)
+            else:
+                survivors.append(track)
+        self._tracks = survivors
 
     # ------------------------------------------------------------------
     # Association helpers
@@ -262,7 +327,7 @@ class BaseTracker:
     def _mark_missed(self, track: ActiveTrack, frame_idx: int) -> None:
         track.last_seen = frame_idx
         if track.misses > self.params.max_misses_M:
-            track.state = TrackState.DEAD
+            track.state = TrackState.HIDDEN
             return
         track.smoothed_tlwh = self._smooth_tlwh(track, mean_to_tlwh(track.mean))
 
@@ -295,6 +360,8 @@ class BaseTracker:
         self, track: ActiveTrack, frame_idx: int, *, matched: bool
     ) -> TrackObservation | None:
         if track.state == TrackState.DEAD:
+            return None
+        if track.state == TrackState.HIDDEN:
             return None
 
         tlwh = track.current_tlwh()

@@ -361,6 +361,7 @@ class TestGetConfigForArgs:
         args = Mock()
         args.config = None
         args.model = None
+        args.embedding_similarity_gate = None
         args.blur_type = None
         args.blur_strength = None
         args.plate_threshold = None
@@ -387,6 +388,7 @@ class TestGetConfigForArgs:
         args = Mock()
         args.config = "/path/to/config.toml"
         args.model = None
+        args.embedding_similarity_gate = None
         args.blur_type = None
         args.blur_strength = None
         args.plate_threshold = None
@@ -423,6 +425,7 @@ class TestGetConfigForArgs:
         args = Mock()
         args.config = None
         args.model = "test_model"
+        args.embedding_similarity_gate = None
         args.blur_type = "gaussian"
         args.blur_strength = 15
         args.plate_threshold = 0.5
@@ -461,6 +464,7 @@ class TestGetConfigForArgs:
         args = Mock()
         args.config = None
         args.model = None
+        args.embedding_similarity_gate = None
         args.blur_type = None
         args.blur_strength = None
         args.plate_threshold = None
@@ -517,33 +521,29 @@ class TestCreateConfig:
 class TestListModels:
     """Test list_models function."""
 
-    @patch("blur_cli.cli.Path")
-    def test_list_models_no_directory(self, mock_path):
+    @patch("blur_cli.cli._get_models_dir")
+    def test_list_models_no_directory(self, mock_get_dir):
         """Test list_models when models directory doesn't exist."""
         mock_models_path = Mock()
         mock_models_path.exists.return_value = False
-        mock_path.return_value.parents = [Mock(), Mock(), Mock()]
-        mock_path.return_value.parents[2] = Mock()
-        mock_path.return_value.parents[2].__truediv__ = lambda self, other: mock_models_path
+        mock_get_dir.return_value = mock_models_path
 
         result = list_models()
         assert result == 1
 
-    @patch("blur_cli.cli.Path")
-    def test_list_models_no_onnx_files(self, mock_path):
+    @patch("blur_cli.cli._get_models_dir")
+    def test_list_models_no_onnx_files(self, mock_get_dir):
         """Test list_models when no ONNX files found."""
         mock_models_path = Mock()
         mock_models_path.exists.return_value = True
         mock_models_path.glob.return_value = []  # No ONNX files
-        mock_path.return_value.parents = [Mock(), Mock(), Mock()]
-        mock_path.return_value.parents[2] = Mock()
-        mock_path.return_value.parents[2].__truediv__ = lambda self, other: mock_models_path
+        mock_get_dir.return_value = mock_models_path
 
         result = list_models()
         assert result == 1
 
-    @patch("blur_cli.cli.Path")
-    def test_list_models_success(self, mock_path):
+    @patch("blur_cli.cli._get_models_dir")
+    def test_list_models_success(self, mock_get_dir):
         """Test successful model listing."""
 
         # Create mock model files with __lt__ method for sorting
@@ -568,9 +568,7 @@ class TestListModels:
             mock_model2,
             mock_model1,
         ]  # Reverse order to test sorting
-        mock_path.return_value.parents = [Mock(), Mock(), Mock()]
-        mock_path.return_value.parents[2] = Mock()
-        mock_path.return_value.parents[2].__truediv__ = lambda self, other: mock_models_path
+        mock_get_dir.return_value = mock_models_path
 
         result = list_models()
         assert result == 0

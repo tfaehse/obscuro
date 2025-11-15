@@ -238,6 +238,10 @@ src/frontend/dist/
 temp/
 tmp/
 logs/
+models/tracking/nanotrack_backbone.onnx
+models/tracking/nanotrack_neckhead.onnx
+models/tracking/trackernano_backbone.onnx
+models/tracking/trackernano_neckhead.onnx
 *.log.*
 
 # IDE

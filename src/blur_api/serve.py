@@ -14,7 +14,6 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
-import av
 import cv2
 import numpy as np
 from fastapi import APIRouter, FastAPI, File, Form, HTTPException, UploadFile
@@ -30,7 +29,7 @@ from anonymizer.paths import (
     DEFAULT_MODEL_NAME,
     IMMUTABLE_MODEL_NAMES,
     ensure_required_models_present,
-    get_models_dir,
+    get_detection_models_dir,
 )
 from anonymizer.tracking import TRACKER_FACTORY
 
@@ -44,7 +43,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-MODELS_DIR = get_models_dir()
+MODELS_DIR = get_detection_models_dir()
 ensure_required_models_present(MODELS_DIR)
 
 _base_config = load_config(apply=False)
@@ -335,30 +334,6 @@ def make_progress_callback(job_id: str):
                 video_jobs[job_id]["updated_at"] = time.time()
 
     return callback
-
-
-async def frame_producer(video_path: Path, queue: asyncio.Queue, fps: int = 10):
-    """
-    Decode `video_path`, down-sample to `fps` and push JPEG bytes into `queue`.
-    Puts a sentinel ``None`` when finished or on error.
-    """
-    try:
-        with av.open(str(video_path)) as container:
-            stream = container.streams.video[0]
-            # Calculate step so we roughly hit the target preview FPS
-            step = 1
-            if stream and stream.average_rate:
-                step = max(1, round(float(stream.average_rate) / fps))
-            index = 0
-            for packet in container.demux(stream):
-                for frame in packet.decode():
-                    if index % step == 0:
-                        img = frame.to_ndarray(format="bgr24")
-                        _, buf = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
-                        await queue.put(buf.tobytes())
-                    index += 1
-    finally:
-        await queue.put(None)  # Sentinel to terminate consumer
 
 
 @router.get("/config/options")
@@ -773,16 +748,7 @@ def start_server(
 
     sys.path.insert(0, str(Path(__file__).parents[1]))
 
-    try:
-        from obscuro.logging_setup import setup_logging
-    except ImportError:
-        # Fallback if import fails
-        import logging
-
-        logging.basicConfig(level=getattr(logging, log_level.upper()))
-
-        def setup_logging(**kwargs):
-            return logging.getLogger("obscuro.api")
+    from blur_cli.logging_setup import setup_logging
 
     # Apply configuration overrides before starting if provided
     if config_path is not None:

@@ -160,7 +160,7 @@ distance_gate_lo = 0.01
 cam_motion_comp = true
 flow_backend = "LK"
 use_visual_tracker = false
-vt_backend = "CSRT"
+vt_backend = "TrackerNano"
 vt_max_age = 6
 drift_gate = 0.15
 process_noise = 1.0
@@ -176,11 +176,7 @@ codec = "h264"
 def reset_global_config():
     """Reset global configuration after each test."""
     yield
-    # Import here to avoid circular imports
-    try:
-        from anonymizer import config
+    from anonymizer import config
 
-        # Reset global config instance to None
-        config._config_instance = None
-    except ImportError:
-        pass
+    # Reset global config instance to None
+    config._config_instance = None

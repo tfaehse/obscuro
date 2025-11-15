@@ -179,7 +179,8 @@ Tracker algorithm to use. Choices:
 - `dummy` - No tracking, frame-by-frame detection only
 - `bytetrack` - Fast ByteTrack algorithm (default)
 - `botsort` - BoT-SORT with motion compensation
-- `hybrid_sot` - Hybrid single-object tracking
+- `fused` - ByteTrack-style association with distance + shape + embeddings
+- `hybrid_sot` - Fused tracker plus per-track visual tracker for missed detections
 
 ```bash
 blur-cli image input.jpg --tracker botsort
@@ -190,6 +191,13 @@ JSON object with tracker parameter overrides. See [Configuration Guide](configur
 
 ```bash
 blur-cli image input.jpg --tracker-params '{"distance_gate":0.15,"max_misses_M":5}'
+```
+
+###### `--embedding-similarity-gate FLOAT`
+Override the minimum embedding cosine similarity used by `fused`/`hybrid_sot` trackers.
+
+```bash
+blur-cli video input.mp4 --embedding-similarity-gate 0.6
 ```
 
 ###### `--offline-linker` / `--no-offline-linker`
@@ -321,7 +329,7 @@ blur-cli --config production.toml video input.mp4
 
 ### `models` - Manage Models
 
-List available ONNX models or download new ones.
+List available ONNX detection models or download new ones. Files are read from `<models root>/detection`.
 
 ```bash
 blur-cli models [OPTIONS]
@@ -367,11 +375,13 @@ Configuration is loaded in the following priority order (later sources override 
 
 ## Model Storage
 
-Models are stored in platform-specific directories:
+Models are stored in platform-specific directories (with `detection/` and `tracking/` subfolders inside):
 
 - **macOS**: `~/Library/Application Support/blur_gui/models`
 - **Linux**: `~/.local/share/blur_gui/models`
 - **Windows**: `%LOCALAPPDATA%\blur_gui\models`
+
+Visual tracker weights for `TrackerNano` are **not bundled**. Download the official backbone/neckhead ONNX files yourself and place them under `<models root>/tracking` if you enable the `hybrid_sot` visual tracker backend.
 
 Override with the `BLUR_MODELS_DIR` environment variable:
 

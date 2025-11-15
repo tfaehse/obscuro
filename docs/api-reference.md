@@ -193,7 +193,7 @@ Get the current active configuration.
 
 #### `GET /blur/models`
 
-List all available ONNX models.
+List all available ONNX detection models (files under `<models root>/detection`).
 
 **Response:**
 
@@ -213,7 +213,7 @@ List all available ONNX models.
 
 #### `POST /blur/models`
 
-Upload a new ONNX model.
+Upload a new ONNX detection model.
 
 **Request:**
 
@@ -246,7 +246,7 @@ curl -X POST http://localhost:8000/blur/models \
 
 #### `DELETE /blur/models/{model_name}`
 
-Delete a model by name.
+Delete a detection model by name.
 
 **Parameters:**
 

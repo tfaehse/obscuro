@@ -712,8 +712,9 @@
     <div class="topbar-actions">
       <button class="btn icon ghost" id="backend-restart-btn" type="button" title="Restart backend" aria-label="Restart backend">&#8635;</button>
       <button class="btn icon ghost" id="backend-manage-btn" type="button" title="Backend settings" aria-label="Backend settings">
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M11.99 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm0-5a1 1 0 0 1 .94.66l.63 1.73a8.04 8.04 0 0 1 1.73.71l1.74-.64a1 1 0 0 1 1.26.54l1 2.3a1 1 0 0 1-.32 1.2l-1.5 1.16c.07.4.11.8.11 1.22s-.04.82-.11 1.22l1.5 1.17a1 1 0 0 1 .32 1.2l-1 2.3a1 1 0 0 1-1.26.54l-1.74-.64a8.04 8.04 0 0 1-1.73.71l-.63 1.73a1 1 0 0 1-.94.66h-2a1 1 0 0 1-.94-.66l-.63-1.73a8.04 8.04 0 0 1-1.73-.71l-1.74.64a1 1 0 0 1-1.26-.54l-1-2.3a1 1 0 0 1 .32-1.2l1.5-1.17A7.8 7.8 0 0 1 6 12c0-.42.04-.82.11-1.22l-1.5-1.16a1 1 0 0 1-.32-1.2l1-2.3a1 1 0 0 1 1.26-.54l1.74.64c.55-.3 1.1-.54 1.73-.71l.63-1.73A1 1 0 0 1 9.99 2h2zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/>
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.78 1.78 0 0 0 .35 1.95l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.78 1.78 0 0 0-1.95-.35 1.78 1.78 0 0 0-1 1.61V21a2 2 0 0 1-4 0v-.09a1.78 1.78 0 0 0-1-1.61 1.78 1.78 0 0 0-1.95.35l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.78 1.78 0 0 0 .35-1.95 1.78 1.78 0 0 0-1.61-1H3a2 2 0 0 1 0-4h.09a1.78 1.78 0 0 0 1.61-1 1.78 1.78 0 0 0-.35-1.95l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.78 1.78 0 0 0 1.95.35h.02a1.78 1.78 0 0 0 1-1.61V3a2 2 0 0 1 4 0v.09a1.78 1.78 0 0 0 1 1.61h.02a1.78 1.78 0 0 0 1.95-.35l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.78 1.78 0 0 0-.35 1.95v.02a1.78 1.78 0 0 0 1.61 1H21a2 2 0 0 1 0 4h-.09a1.78 1.78 0 0 0-1.61 1Z"></path>
         </svg>
       </button>
     </div>
@@ -908,6 +909,7 @@
             <div class="control" data-scope="hybrid_sot">
               <label for="track-vt-backend">Visual tracker backend</label>
               <select id="track-vt-backend" class="select">
+                <option value="TrackerNano">TrackerNano</option>
                 <option value="CSRT">CSRT</option>
                 <option value="KCF">KCF</option>
                 <option value="SiamRPN">SiamRPN (experimental)</option>

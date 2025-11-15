@@ -27,3 +27,8 @@ def test_get_tracker_invalid_identifier_type():
 def test_tracker_factory_accepts_dict_params():
     tracker = TrackerFactory.get("bytetrack", params={"distance_gate": 0.55})
     assert tracker.params.distance_gate == 0.55
+
+
+def test_tracker_factory_fused():
+    tracker = TrackerFactory.get("fused")
+    assert tracker.__class__.__name__ == "FusedTracker"

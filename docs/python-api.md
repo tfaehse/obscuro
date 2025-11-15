@@ -634,10 +634,10 @@ anonymizer.blur_video(Path("input.mp4"), Path("output.mp4"))
 ### Ensure Model Exists
 
 ```python
-from anonymizer.paths import ensure_default_model_present, get_models_dir
+from anonymizer.paths import ensure_default_model_present, get_detection_models_dir
 
-# Ensure default model is present
-models_dir = get_models_dir()
+# Ensure default detection model is present
+models_dir = get_detection_models_dir()
 ensure_default_model_present(models_dir)
 ```
 
@@ -645,9 +645,9 @@ ensure_default_model_present(models_dir)
 
 ```python
 from pathlib import Path
-from anonymizer.paths import get_models_dir
+from anonymizer.paths import get_detection_models_dir
 
-models_dir = get_models_dir()
+models_dir = get_detection_models_dir()
 models = list(models_dir.glob("*.onnx"))
 
 for model in models:
@@ -713,7 +713,8 @@ config = AnonymizerConfig(
 - `create_config_template(path)` - Generate config template
 - `set_config(config)` - Set global configuration
 - `ensure_default_model_present(dir)` - Ensure default model exists
-- `get_models_dir()` - Get models directory path
+- `get_models_dir()` - Get the root models directory (`detection/` + `tracking/`)
+- `get_detection_models_dir()` / `get_tracking_models_dir()` - Get the specific subdirectories
 
 ### Exceptions
 - `CancellationException` - Raised when processing is cancelled

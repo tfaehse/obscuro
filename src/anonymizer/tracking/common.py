@@ -13,6 +13,7 @@ class TrackState(str, Enum):
 
     TENTATIVE = "tentative"
     CONFIRMED = "confirmed"
+    HIDDEN = "hidden"
     DEAD = "dead"
 
 

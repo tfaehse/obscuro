@@ -26,7 +26,7 @@ export interface DetectionConfig {
   sahi_overlap_ratio: number;
 }
 
-export type TrackerType = 'dummy' | 'bytetrack' | 'botsort' | 'hybrid_sot';
+export type TrackerType = 'dummy' | 'bytetrack' | 'botsort' | 'hybrid_sot' | 'fused';
 
 export interface TrackerParams {
   distance_gate: number;
@@ -42,6 +42,7 @@ export interface TrackerParams {
   ema_alpha: number;
   high_thresh: number;
   low_thresh: number;
+  embedding_similarity_gate: number;
   distance_gate_hi: number;
   distance_gate_lo: number;
   cam_motion_comp: boolean;

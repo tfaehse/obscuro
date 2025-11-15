@@ -27,7 +27,7 @@ from anonymizer.config import (
     set_config,
     with_overrides,
 )
-from anonymizer.paths import DEFAULT_MODEL_NAME, get_models_dir
+from anonymizer.paths import DEFAULT_MODEL_NAME, get_detection_models_dir
 
 
 class TestModelConfig:
@@ -42,7 +42,7 @@ class TestModelConfig:
     def test_model_path_property(self):
         """Test model path property."""
         config = ModelConfig(name="test_model")
-        expected_path = get_models_dir() / "test_model.onnx"
+        expected_path = get_detection_models_dir() / "test_model.onnx"
         assert config.path == expected_path
 
     def test_model_config_with_custom_name(self):

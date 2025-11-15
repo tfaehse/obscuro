@@ -16,7 +16,11 @@ from typing import Any, Literal, cast
 import toml
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
-from anonymizer.paths import DEFAULT_MODEL_NAME, ensure_default_model_present, get_models_dir
+from anonymizer.paths import (
+    DEFAULT_MODEL_NAME,
+    ensure_default_model_present,
+    get_detection_models_dir,
+)
 
 
 class BlurType(str, Enum):
@@ -35,6 +39,7 @@ class TrackerType(str, Enum):
     BYTETRACK = "bytetrack"
     BOTSORT = "botsort"
     HYBRID_SOT = "hybrid_sot"
+    FUSED = "fused"
 
 
 class ModelConfig(BaseModel):
@@ -53,7 +58,7 @@ class ModelConfig(BaseModel):
         if self.name:
             if self.name == DEFAULT_MODEL_NAME:
                 ensure_default_model_present()
-            return get_models_dir() / f"{self.name}.onnx"
+            return get_detection_models_dir() / f"{self.name}.onnx"
         raise ValueError("Model path is not configured; set model.name or model.file")
 
     # Note: Model validation temporarily disabled for development
@@ -122,11 +127,13 @@ class TrackerParams(BaseModel):
     ema_alpha: float = Field(0.6, ge=0.0, le=1.0)
     high_thresh: float = Field(0.6, ge=0.0, le=1.0)
     low_thresh: float = Field(0.2, ge=0.0, le=1.0)
+    embedding_similarity_gate: float = Field(0.55, ge=0.0, le=1.0)
+    min_detection_rate: float = Field(0.0, ge=0.0, le=1.0)
     distance_gate_hi: float = Field(0.05, ge=0.0, le=1.0)
     distance_gate_lo: float = Field(0.02, ge=0.0, le=1.0)
     cam_motion_comp: bool = False
     flow_backend: str = Field("LK")
-    vt_backend: str = Field("CSRT")
+    vt_backend: str = Field("TrackerNano")
     drift_gate: float = Field(0.15, ge=0.0, le=2.0)
     process_noise: float = Field(1.0, ge=0.0, le=10.0)
 
@@ -178,9 +185,23 @@ DEFAULT_TRACKER_PARAMS: dict[TrackerType, dict[str, Any]] = {
         "bbox_dilate_pct": 0.25,
         "temporal_smooth_alpha": 1.0,
         "use_visual_tracker": True,
-        "vt_backend": "CSRT",
+        "vt_backend": "TrackerNano",
         "vt_max_age": 10,
         "drift_gate": 0.05,
+    },
+    TrackerType.FUSED: {
+        "distance_gate": 0.1,
+        "confirm_after_N": 3,
+        "max_misses_M": 5,
+        "offline_linker_max_misses": 30,
+        "offline_linker_per_frame_gate": 0.05,
+        "bbox_dilate_pct": 0.2,
+        "temporal_smooth_alpha": 1.0,
+        "use_low_score_pool": True,
+        "high_thresh": 0.5,
+        "low_thresh": 0.2,
+        "distance_gate_hi": 0.08,
+        "distance_gate_lo": 0.15,
     },
 }
 
@@ -546,7 +567,7 @@ use_offline_linker = true
 # cam_motion_comp = true
 # flow_backend = "LK"
 # use_visual_tracker = false
-# vt_backend = "CSRT"
+# vt_backend = "TrackerNano"
 # vt_max_age = 6
 # drift_gate = 0.15
 # process_noise = 1.0

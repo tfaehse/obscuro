@@ -68,7 +68,8 @@
           "src/anonymizer/**",
           "src/blur_api/**",
           "src/blur_gui/**",
-          "models/*.onnx"
+          "models/detection/**/*",
+          "models/tracking/**/*"
         ]
       }
     ]

@@ -208,51 +208,6 @@ class Blurrer:
         """
         return self._apply_detections_to_image(image, detections)
 
-    def blur_frame(self, frame: np.ndarray, box: tuple) -> np.ndarray:
-        """
-        Apply the configured blur type to a specific region of the frame.
-
-        :param frame: Input frame as numpy array
-        :param box: Bounding box as tuple (x1, y1, x2, y2) in relative coordinates (0-1)
-        :return: Frame with blurred region
-        """
-        if self.cancel_event and self.cancel_event.is_set():
-            return frame
-
-        if isinstance(box, dict):
-            if not bool(box.get("is_confident", True)):
-                return frame
-            x1 = float(box["x1"])
-            y1 = float(box["y1"])
-            x2 = float(box["x2"])
-            y2 = float(box["y2"])
-        else:
-            x1, y1, x2, y2 = map(float, box)
-
-        absolute_rois = self._ensure_absolute_rois([(x1, y1, x2, y2)], frame.shape)
-
-        if self.blur_type == "debug":
-            if absolute_rois:
-                x, y, w_box, h_box = absolute_rois[0]
-                self._draw_box(
-                    frame,
-                    {
-                        "x1": float(x),
-                        "y1": float(y),
-                        "x2": float(x + w_box),
-                        "y2": float(y + h_box),
-                    },
-                    (255, 0, 0),
-                )
-            return frame
-
-        if absolute_rois:
-            return blur_rois(
-                frame, absolute_rois, blur_type=self.blur_type, blur_strength=self.blur_strength
-            )
-
-        return frame
-
     @staticmethod
     def _group_rows_by_frame(df: pl.DataFrame | None) -> dict[int, list[dict[str, Any]]]:
         grouped: dict[int, list[dict[str, Any]]] = {}

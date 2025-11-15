@@ -14,14 +14,14 @@ import numpy as np
 import onnxruntime as ort
 import polars as pl
 
-from anonymizer.paths import get_models_dir
+from anonymizer.paths import get_detection_models_dir
 from anonymizer.sahi_integration import DEFAULT_CATEGORY_MAPPING, SahiOnnxDetectionModel
 
 from .cancellation import CancellationException
 from .io.video import get_video_info, iter_frame_batches
 from .utils.progress import ProgressRateEstimator, format_progress_message
 
-DEFAULT_MODELS_DIR = get_models_dir()
+DEFAULT_MODELS_DIR = get_detection_models_dir()
 
 
 class BaseDetector:

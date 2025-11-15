@@ -31,8 +31,8 @@ def test_get_models_dir_uses_environment_override(tmp_path, monkeypatch):
 
 
 def test_ensure_default_model_present_existing(tmp_path, monkeypatch):
-    models_dir = tmp_path / "models"
-    models_dir.mkdir()
+    models_dir = tmp_path / "models" / paths.DETECTION_MODELS_SUBDIR
+    models_dir.mkdir(parents=True, exist_ok=True)
     for filename in paths.DEFAULT_MODEL_FILENAMES.values():
         (models_dir / filename).write_bytes(b"model")
 
@@ -52,39 +52,37 @@ def test_ensure_default_model_copies_bundled(tmp_path, monkeypatch):
 
     monkeypatch.setenv(paths.ENV_MODELS_DIR, str(models_dir))
     monkeypatch.setitem(os.environ, paths.ENV_MODELS_DIR, str(models_dir))
-
-    # Patch resources.files to return our bundled directory
-    monkeypatch.setattr(
-        paths.resources,
-        "files",
-        lambda pkg: bundled_dir if pkg == paths._BUNDLED_MODELS_PACKAGE else None,
-    )
+    monkeypatch.setenv(paths.ENV_BUNDLED_MODELS_DIR, str(bundled_dir))
+    monkeypatch.setitem(os.environ, paths.ENV_BUNDLED_MODELS_DIR, str(bundled_dir))
 
     paths._default_models_dir.cache_clear()
     target = paths.ensure_default_model_present()
     assert target is not None
     assert target.exists()
     assert target.read_bytes() == b"bundled_" + paths.DEFAULT_MODEL_FILENAME.encode()
+    detection_dir = models_dir / paths.DETECTION_MODELS_SUBDIR
     for filename in paths.DEFAULT_MODEL_FILENAMES.values():
-        model_path = models_dir / filename
+        model_path = detection_dir / filename
         assert model_path.exists()
         assert model_path.read_bytes() == b"bundled_" + filename.encode()
 
 
 def test_ensure_default_model_uses_repo_fallback(tmp_path, monkeypatch):
     repo_dir = tmp_path / "repo"
-    repo_dir.mkdir()
+    detection_repo_dir = repo_dir / paths.DETECTION_MODELS_SUBDIR
+    detection_repo_dir.mkdir(parents=True, exist_ok=True)
     repo_models = {}
     for filename in paths.DEFAULT_MODEL_FILENAMES.values():
-        path = repo_dir / filename
+        path = detection_repo_dir / filename
         path.write_bytes(f"repo_{filename}".encode())
         repo_models[filename] = path
 
-    models_dir = tmp_path / "models"
-    models_dir.mkdir()
+    models_dir = tmp_path / "models" / paths.DETECTION_MODELS_SUBDIR
+    models_dir.mkdir(parents=True, exist_ok=True)
 
-    monkeypatch.setattr(paths, "_get_bundled_model", lambda filename: None)
-    monkeypatch.setattr(paths, "_get_repo_model", lambda filename: repo_models.get(filename))
+    monkeypatch.setattr(
+        paths, "_get_repo_model", lambda filename, subdir=None: repo_models.get(filename)
+    )
 
     result = paths.ensure_default_model_present(models_dir=models_dir)
     assert result is not None

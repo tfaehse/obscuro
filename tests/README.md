@@ -28,86 +28,42 @@ tests/
 
 ## Test Categories
 
-The tests are organized into several categories using pytest markers:
-
-### Unit Tests (`@pytest.mark.unit`)
-- Fast, isolated tests
-- Test individual functions and classes
-- Mock external dependencies
-- Should run in milliseconds
+Pytest markers are only used for integration coverage today:
 
 ### Integration Tests (`@pytest.mark.integration`)
-- Test interactions between components
-- May use real files/data
-- Test end-to-end workflows
-- Slower than unit tests
+- Exercise component boundaries and real data flows
+- Useful for features that require model files or multiple services
+- Expect them to run slower than the default unit-style tests
 
-### End-to-End Tests (`@pytest.mark.e2e`)
-- Test complete user workflows
-- Use real video files and models
-- Test CLI commands and API endpoints
-- Slowest tests, run less frequently
-
-### Slow Tests (`@pytest.mark.slow`)
-- Performance tests
-- Memory leak tests
-- Stress tests with large datasets
+All other tests run without markers and should stay fast and isolated.
 
 ## Running Tests
 
-### Using Development Script
+Install the test dependencies once per virtual environment:
 
 ```bash
-# Run all tests with coverage
-./dev.sh test
-
-# Run tests quickly without coverage
-./dev.sh test-fast
-
-# Run only unit tests
-./dev.sh test-unit
-
-# Run only integration tests
-./dev.sh test-integration
-
-# Run tests in parallel (faster)
-./dev.sh test-parallel
-
-# Generate detailed coverage report
-./dev.sh coverage
+uv sync --group test
 ```
 
-### Using pytest directly
+Common commands:
 
 ```bash
-# Install test dependencies
-uv sync --group test
-
-# Run all tests
+# Run the complete suite with coverage (default pyproject options)
 uv run pytest
 
-# Run with coverage
-uv run pytest --cov=src --cov-report=html
-
-# Run specific test categories
-uv run pytest -m unit
+# Focus on integration tests only
 uv run pytest -m integration
-uv run pytest -m "not slow"
 
-# Run tests in parallel
-uv run pytest -n auto
-
-# Run with verbose output
-uv run pytest -v
-
-# Stop at first failure
+# Stop on first failure or increase verbosity when chasing bugs
 uv run pytest -x
+uv run pytest -vv
 
-# Run specific test file
+# Target a specific module or test function
 uv run pytest tests/anonymizer/test_config.py
-
-# Run specific test function
 uv run pytest tests/anonymizer/test_config.py::TestModelConfig::test_model_config_defaults
+
+# Use xdist for parallel execution when the host has spare cores
+uv run pytest -n auto
 ```
 
 ## Coverage Requirements
@@ -147,10 +103,7 @@ addopts = [
     "--cov-fail-under=80"
 ]
 markers = [
-    "slow: marks tests as slow",
-    "integration: marks tests as integration tests",
-    "unit: marks tests as unit tests",
-    "e2e: marks tests as end-to-end tests"
+    "integration: marks integration tests that exercise multiple components"
 ]
 ```
 
@@ -187,12 +140,7 @@ precision = 2
    - Includes linting, type checking, security checks
    - Uploads coverage to Codecov
 
-2. **Nightly Tests** (`.github/workflows/nightly.yml`)
-   - Runs extended test suite daily
-   - Includes stress tests and memory profiling
-   - Tests compatibility with different dependency versions
-
-3. **Release Workflow** (`.github/workflows/release.yml`)
+2. **Release Workflow** (`.github/workflows/release.yml`)
    - Comprehensive testing before release
    - Builds and publishes packages
    - Creates GitHub releases with binaries
@@ -236,12 +184,6 @@ class TestYourClass:
         result = instance.method()
         assert result == expected_result
 
-    @pytest.mark.slow
-    def test_performance(self):
-        """Test performance characteristics."""
-        # Performance test implementation
-        pass
-
     @pytest.mark.integration
     def test_integration_with_other_module(self):
         """Test integration with other modules."""
@@ -271,23 +213,6 @@ def test_with_mock(mock_dependency):
     mock_dependency.return_value = expected_value
     # Your test implementation
     mock_dependency.assert_called_once()
-```
-
-## Performance Testing
-
-### Memory Testing
-
-```bash
-# Install memory profiler
-uv add --group test memray
-
-# Run memory profiling
-uv run pytest --memray tests/
-```
-
-### Benchmark Testing
-
-```bash
 ```
 
 ## Debugging Tests
@@ -336,9 +261,9 @@ uv run pytest -s
    - Verify mock interactions when relevant
 
 4. **Performance**
-   - Keep unit tests fast
-   - Use appropriate markers for slow tests
-   - Consider parallel execution
+   - Keep default (unmarked) tests fast
+   - Reserve the integration marker for scenarios that truly need it
+   - Consider parallel execution with `pytest -n auto`
 
 5. **Maintenance**
    - Keep tests simple and readable
@@ -355,7 +280,7 @@ uv run pytest -s
 
 2. **Slow Tests**
    - Use `-k` to run specific tests
-   - Run unit tests only: `pytest -m unit`
+   - Run only fast tests: `pytest -m "not integration"`
    - Use parallel execution: `pytest -n auto`
 
 3. **Coverage Issues**

@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import shutil
 from functools import lru_cache
-from importlib import resources
 from pathlib import Path
 
 from platformdirs import user_data_dir
@@ -14,13 +13,15 @@ APP_NAME = "obscuro"
 APP_AUTHOR = "obscuro"
 ENV_DATA_DIR = "BLUR_DATA_DIR"
 ENV_MODELS_DIR = "BLUR_MODELS_DIR"
+ENV_BUNDLED_MODELS_DIR = "BLUR_BUNDLED_MODELS_DIR"
 
 DEFAULT_MODEL_NAMES = ("1280_nano", "640_nano", "1280_nano_b1", "640_nano_b1")
 DEFAULT_MODEL_NAME = DEFAULT_MODEL_NAMES[0]
 DEFAULT_MODEL_FILENAME = f"{DEFAULT_MODEL_NAME}.onnx"
 DEFAULT_MODEL_FILENAMES = {name: f"{name}.onnx" for name in DEFAULT_MODEL_NAMES}
 IMMUTABLE_MODEL_NAMES = set(DEFAULT_MODEL_NAMES)
-_BUNDLED_MODELS_PACKAGE = "anonymizer._bundled_models"
+DETECTION_MODELS_SUBDIR = "detection"
+TRACKING_MODELS_SUBDIR = "tracking"
 
 
 @lru_cache(maxsize=1)
@@ -54,43 +55,68 @@ def get_models_dir(create: bool = True) -> Path:
     return path
 
 
-def _get_bundled_model(filename: str):
-    try:
-        bundled_root = resources.files(_BUNDLED_MODELS_PACKAGE)
-    except (ModuleNotFoundError, FileNotFoundError):
-        return None
-    candidate = bundled_root / filename
-    return candidate if candidate.is_file() else None
+def _subdir(base: Path, subdir: str, create: bool) -> Path:
+    path = base / subdir
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
-def _get_repo_model(filename: str) -> Path | None:
+def get_detection_models_dir(create: bool = True) -> Path:
+    """Return the directory containing detection ONNX models."""
+    return _subdir(get_models_dir(create=create), DETECTION_MODELS_SUBDIR, create)
+
+
+def get_tracking_models_dir(create: bool = True) -> Path:
+    """Return the directory containing tracking ONNX models."""
+    return _subdir(get_models_dir(create=create), TRACKING_MODELS_SUBDIR, create)
+
+
+def _iter_bundled_search_dirs(subdir: str | None = None):
+    """Yield candidate directories containing bundled models."""
+    override = os.environ.get(ENV_BUNDLED_MODELS_DIR)
+    if override:
+        override_path = Path(override).expanduser()
+        if subdir:
+            yield override_path / subdir
+        yield override_path
+
+    repo_root = Path(__file__).resolve().parents[2] / "models"
+    if subdir:
+        yield repo_root / subdir
+    yield repo_root
+    yield Path.cwd() / "models"
+
+
+def _get_repo_model(filename: str, *, subdir: str | None = None) -> Path | None:
     """Fallback: locate a model shipped alongside the source tree."""
-    repo_root = Path(__file__).resolve().parents[2]
-    models_dir = repo_root / "models"
-    if not models_dir.exists():
-        return None
+    search_dirs = list(_iter_bundled_search_dirs(subdir=subdir))
 
-    direct_candidate = models_dir / filename
-    if direct_candidate.is_file():
-        return direct_candidate
+    for directory in search_dirs:
+        if not directory.exists():
+            continue
+        candidate = directory / filename
+        if candidate.is_file():
+            return candidate
 
-    # Grab the first available ONNX model as a safety net.
-    candidates = sorted(models_dir.glob("*.onnx"))
-    return candidates[0] if candidates else None
+    for directory in search_dirs:
+        if not directory.exists():
+            continue
+        candidates = sorted(directory.glob("*.onnx"))
+        if candidates:
+            return candidates[0]
+    return None
 
 
-def _ensure_model_present(name: str, models_dir: Path) -> Path | None:
+def _ensure_model_present(name: str, models_dir: Path, *, subdir: str | None = None) -> Path | None:
     filename = DEFAULT_MODEL_FILENAMES.get(name, f"{name}.onnx")
     target = models_dir / filename
     if target.exists():
         return target
 
-    bundled = _get_bundled_model(filename)
-    if bundled is None:
-        bundled = _get_repo_model(filename)
+    bundled = _get_repo_model(filename, subdir=subdir)
     if bundled is None:
         return None
-
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
         with bundled.open("rb") as src, target.open("wb") as dst:
@@ -102,10 +128,10 @@ def _ensure_model_present(name: str, models_dir: Path) -> Path | None:
 
 def ensure_required_models_present(models_dir: Path | None = None) -> list[Path]:
     """Ensure all bundled models exist in the persistent models directory."""
-    models_dir = models_dir or get_models_dir()
+    models_dir = models_dir or get_detection_models_dir()
     ensured: list[Path] = []
     for name in DEFAULT_MODEL_NAMES:
-        path = _ensure_model_present(name, models_dir)
+        path = _ensure_model_present(name, models_dir, subdir=DETECTION_MODELS_SUBDIR)
         if path:
             ensured.append(path)
     return ensured
@@ -126,5 +152,7 @@ __all__ = [
     "ensure_default_model_present",
     "ensure_required_models_present",
     "get_data_root",
+    "get_detection_models_dir",
     "get_models_dir",
+    "get_tracking_models_dir",
 ]

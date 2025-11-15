@@ -93,7 +93,7 @@ blur-cli --log-level DEBUG video input.mp4
 **Type:** String
 **Default:** `"1280_nano"`
 
-Name of the ONNX model file (without .onnx extension). The model must exist in the models directory.
+Name of the ONNX model file (without .onnx extension). The model must exist in the detection models directory (`<models root>/detection`).
 
 **TOML:**
 ```toml
@@ -341,14 +341,15 @@ blur-cli video input.mp4 --use-sahi --sahi-overlap 0.3
 ### `tracking.type`
 **Type:** String
 **Default:** `"bytetrack"`
-**Choices:** `dummy`, `bytetrack`, `botsort`, `hybrid_sot`
+**Choices:** `dummy`, `bytetrack`, `botsort`, `fused`, `hybrid_sot`
 
 Multi-object tracker algorithm:
 
 - **`dummy`** - No tracking, frame-by-frame detection only (fastest)
 - **`bytetrack`** - Fast ByteTrack algorithm (good balance of speed/quality)
-- **`botsort`** - BoT-SORT with camera motion compensation (best quality)
-- **`hybrid_sot`** - Hybrid single-object tracking (experimental)
+- **`botsort`** - BoT-SORT with camera motion compensation (best quality without embeddings)
+- **`fused`** - ByteTrack-style association with distance + shape + MobileNetV3 embeddings and strict gates
+- **`hybrid_sot`** - Fused tracker augmented with a per-track visual tracker to bridge detector gaps
 
 **TOML:**
 ```toml
@@ -478,6 +479,32 @@ Percentage to expand bounding boxes (for tracking stability).
 bbox_dilate_pct = 0.25
 ```
 
+#### `embedding_similarity_gate`
+**Type:** Float
+**Default:** `0.55`
+**Range:** `0.0-1.0`
+
+Minimum cosine similarity required when associating embeddings (used by `fused` and `hybrid_sot`).
+
+**TOML:**
+```toml
+[tracking.params]
+embedding_similarity_gate = 0.6
+```
+
+#### `min_detection_rate`
+**Type:** Float
+**Default:** `0.0`
+**Range:** `0.0-1.0`
+
+Optional post-filter: drop tracks whose detection hit-rate (detections/age) falls below this threshold.
+
+**TOML:**
+```toml
+[tracking.params]
+min_detection_rate = 0.2
+```
+
 #### `temporal_smooth_alpha`
 **Type:** Float
 **Default:** Varies by tracker
@@ -575,9 +602,13 @@ Enable visual single-object tracking for missed detections.
 
 #### `vt_backend`
 **Type:** String
-**Default:** `"CSRT"`
+**Default:** `"TrackerNano"`
 
-Visual tracker backend (OpenCV tracker algorithm).
+Visual tracker backend (OpenCV tracker algorithm). Supported values:
+- `TrackerNano`/`Nano` (default) - OpenCV's lightweight NanoTrack implementation; requires backbone + neck/head weights that you must download separately into `models/tracking`
+- `CSRT` - accurate but slower
+- `KCF` - faster but less accurate
+- `Siam`/`SiamRPN` - MIL fallback for legacy configs
 
 #### `vt_max_age`
 **Type:** Integer
@@ -600,7 +631,7 @@ type = "hybrid_sot"
 
 [tracking.params]
 use_visual_tracker = true
-vt_backend = "CSRT"
+vt_backend = "TrackerNano"
 vt_max_age = 10
 drift_gate = 0.05
 distance_gate = 0.05
@@ -666,12 +697,14 @@ Only a handful of path/launch settings remain environment-driven:
 | Variable | Purpose |
 | --- | --- |
 | `BLUR_DATA_DIR` | Override the root data directory used by the backend and CLI (defaults to the OS-specific user-data path). |
-| `BLUR_MODELS_DIR` | Override the directory where ONNX models are stored/discovered. |
+| `BLUR_MODELS_DIR` | Override the root directory that contains the `detection/` and `tracking/` ONNX subfolders. |
 | `BLUR_BACKEND_AUTOSTART` | When running the Electron app, force the backend launcher to `uv`, `docker`, or `auto`. |
 | `BLUR_BACKEND_DOCKER_IMAGE_BASE` / `BLUR_BACKEND_DOCKER_CPU_IMAGE` / `BLUR_BACKEND_DOCKER_GPU_IMAGE` | Customize which Docker images the Electron app uses when auto-starting the backend. |
 | `BLUR_BACKEND_ROOT` | Explicitly point the Electron backend manager to a checkout when the sources are not bundled. |
 
-Example (custom models directory):
+Detection models always live under `<models root>/detection`, while tracker weights (such as TrackerNano) live under `<models root>/tracking`.
+
+Example (custom models directory for detection models):
 
 ```bash
 export BLUR_MODELS_DIR=/custom/path/to/models
@@ -802,7 +835,7 @@ max_misses_M = 30     # Keep blurring even if detection lost
 
 ## Model Storage Location
 
-Models are stored in platform-specific directories:
+Models are stored in platform-specific directories (with `detection/` and `tracking/` subfolders inside):
 
 - **macOS**: `~/Library/Application Support/blur_gui/models`
 - **Linux**: `~/.local/share/blur_gui/models` (or `$XDG_DATA_HOME/blur_gui/models`)
@@ -813,6 +846,8 @@ Override with environment variable:
 ```bash
 export BLUR_MODELS_DIR=/custom/path/to/models
 ```
+
+Note: TrackerNano visual-tracking weights are not bundled. Download the official backbone and neck/head ONNX files and drop them into `<models root>/tracking` when using the `hybrid_sot` visual tracker backend.
 
 ---
 

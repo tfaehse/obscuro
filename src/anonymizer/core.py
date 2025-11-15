@@ -97,8 +97,7 @@ class Anonymizer(CancellationMixin):
             progress_callback=self.progress_callback,
             **tracker_kwargs,
         )
-        if hasattr(self.tracker, "progress_callback"):
-            self.tracker.progress_callback = self.progress_callback
+        self.tracker.progress_callback = self.progress_callback
 
         self._offline_linker_tracks = None
 
@@ -333,15 +332,9 @@ class Anonymizer(CancellationMixin):
         if video_path is None:
             return
 
-        try:
-            from plotly import graph_objects as go  # type: ignore
-            from plotly.colors import qualitative  # type: ignore
-            from plotly.subplots import make_subplots  # type: ignore
-        except ImportError:  # pragma: no cover - optional debug dependency
-            logger.warning(
-                "Plotly not installed; skipping tracking debug plot despite BLUR_DEBUG_TRACK_PLOT."
-            )
-            return
+        from plotly import graph_objects as go  # type: ignore
+        from plotly.colors import qualitative  # type: ignore
+        from plotly.subplots import make_subplots  # type: ignore
 
         output_path = Path(video_path)
         output_file = output_path.with_name(f"{output_path.stem}_tracks.html")

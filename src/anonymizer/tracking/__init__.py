@@ -7,6 +7,7 @@ from anonymizer.config import TrackerParams
 from .botsort import BotSortTracker
 from .bytetrack import ByteTrackTracker
 from .dummy import DummyTracker
+from .fused import FusedTracker
 from .hybrid import HybridSOTTracker
 from .offline_linker import link_tracklets
 
@@ -15,6 +16,7 @@ TRACKER_FACTORY = {
     "bytetrack": ByteTrackTracker,
     "botsort": BotSortTracker,
     "hybrid_sot": HybridSOTTracker,
+    "fused": FusedTracker,
 }
 
 

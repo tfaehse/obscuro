@@ -7,9 +7,7 @@ Provides command-line access to the same functionality as the API.
 import argparse
 import json
 import logging
-import os
 from pathlib import Path
-from pathlib import Path as PathType
 from typing import Any
 from urllib.parse import urlparse
 from urllib.request import urlopen
@@ -29,9 +27,8 @@ from anonymizer.config import (
     enforce_model_batch_constraints,
     set_config,
 )
-from anonymizer.paths import ensure_default_model_present
-
-from .logging_setup import get_progress_logger, log_with_extra, setup_logging
+from anonymizer.paths import get_detection_models_dir
+from blur_cli.logging_setup import get_progress_logger, log_with_extra, setup_logging
 
 
 def apply_model_constraints_with_notice(config: AnonymizerConfig, logger: logging.Logger) -> None:
@@ -255,6 +252,9 @@ def get_config_for_args(args) -> AnonymizerConfig:
         tracking_overrides["type"] = TrackerType(args.tracker)
     if hasattr(args, "offline_linker") and args.offline_linker is not None:
         tracking_overrides["use_offline_linker"] = bool(args.offline_linker)
+    emb_gate = getattr(args, "embedding_similarity_gate", None)
+    if emb_gate is not None and isinstance(emb_gate, int | float | str):
+        tracking_overrides.setdefault("params", {})["embedding_similarity_gate"] = float(emb_gate)
     if hasattr(args, "tracker_params") and args.tracker_params:
         try:
             user_params = json.loads(args.tracker_params)
@@ -318,11 +318,8 @@ def create_config(args):
 
 
 def _get_models_dir() -> Path:
-    override = os.environ.get("BLUR_MODELS_DIR")
-    path = Path(override).expanduser() if override else Path(__file__).parents[2] / "models"
-    if isinstance(path, PathType):
-        ensure_default_model_present(path)
-    return path
+    # Allow callers to observe missing directories without eagerly copying bundled models.
+    return get_detection_models_dir(create=False)
 
 
 def list_models(download_url: str | None = None, desired_name: str | None = None):
@@ -484,6 +481,12 @@ Examples:
             help="Type of blur to apply (overrides config file)",
         )
         subparser.add_argument(
+            "--embedding-similarity-gate",
+            type=float,
+            dest="embedding_similarity_gate",
+            help="Minimum cosine similarity for tracker embeddings (overrides config)",
+        )
+        subparser.add_argument(
             "--blur-strength", type=int, help="Blur strength/intensity (overrides config file)"
         )
         subparser.add_argument(
@@ -521,7 +524,7 @@ Examples:
         )
         subparser.add_argument(
             "--tracker",
-            choices=["dummy", "bytetrack", "botsort", "hybrid_sot"],
+            choices=["dummy", "bytetrack", "botsort", "hybrid_sot", "fused"],
             help="Tracker to use (overrides config file)",
         )
         subparser.add_argument(

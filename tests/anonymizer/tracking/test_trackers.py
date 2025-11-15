@@ -1,7 +1,9 @@
+import cv2
 import numpy as np
 import polars as pl
 import pytest
 
+import anonymizer.tracking.hybrid as hybrid
 from anonymizer.config import TrackerParams
 from anonymizer.tracking.botsort import BotSortTracker
 from anonymizer.tracking.bytetrack import ByteTrackTracker
@@ -12,6 +14,7 @@ from anonymizer.tracking.common import (
     batched_center_distance,
 )
 from anonymizer.tracking.dummy import DummyTracker
+from anonymizer.tracking.fused import FusedTracker
 from anonymizer.tracking.hybrid import HybridSOTTracker
 from anonymizer.tracking.offline_linker import link_tracklets
 from anonymizer.tracking.sort import SortTracker
@@ -190,6 +193,48 @@ def test_sort_tracker_basic_association():
     assert history_ids == {1, 2}
 
 
+def test_fused_tracker_uses_embedding_gate(monkeypatch):
+    params = TrackerParams(
+        high_thresh=0.5,
+        low_thresh=0.2,
+        distance_gate=0.2,
+        distance_gate_hi=0.15,
+        distance_gate_lo=0.25,
+        use_low_score_pool=True,
+    )
+    tracker = FusedTracker(None, params=params)
+
+    class FakeEmbed:
+        def __init__(self):
+            self.calls = 0
+
+        def embed(self, patch):
+            self.calls += 1
+            return np.ones(4, dtype=np.float32) * self.calls
+
+    # Force embeddings to deterministic vectors
+    monkeypatch.setattr(tracker, "_embedding_model", FakeEmbed())
+    # Fake frames returned; vitally, they need shape for cropping
+    monkeypatch.setattr(tracker, "_get_frame", lambda idx: np.ones((20, 20, 3), dtype=np.uint8))
+    monkeypatch.setattr(tracker, "_prepare_frame", lambda frame: frame)
+
+    data = pl.DataFrame(
+        {
+            "frame": [0, 1],
+            "x1": [0.0, 0.5],
+            "y1": [0.0, 0.5],
+            "x2": [10.0, 10.5],
+            "y2": [10.0, 10.5],
+            "confidence": [0.9, 0.9],
+            "frame_width": [20, 20],
+            "frame_height": [20, 20],
+            "is_confident": [True, True],
+        }
+    )
+    tracks = tracker.track(data)
+    assert tracks["track_id"].n_unique() == 1
+
+
 def test_hybrid_visual_tracker_updates(monkeypatch):
     params = TrackerParams(use_visual_tracker=True, vt_max_age=3)
     tracker = HybridSOTTracker(None, params=params)
@@ -226,6 +271,110 @@ def test_hybrid_visual_tracker_updates(monkeypatch):
     assert track_obj.visual_tracker is not None
     tracker._mark_missed(track_obj, 1)
     assert track_obj.misses == 0
+
+
+def test_hybrid_visual_tracker_update_failure_is_soft(monkeypatch):
+    params = TrackerParams(use_visual_tracker=True, vt_max_age=3)
+    tracker = HybridSOTTracker(None, params=params)
+
+    class FailingTracker:
+        def init(self, frame, bbox):
+            self.bbox = bbox
+
+        def update(self, frame):
+            raise cv2.error("Synthetic failure")
+
+    monkeypatch.setattr(
+        "anonymizer.tracking.hybrid._create_visual_tracker",
+        lambda backend: FailingTracker(),
+    )
+    monkeypatch.setattr(tracker, "_get_frame", lambda idx: np.zeros((8, 8, 4), dtype=np.uint8))
+
+    det_array = np.array([0.0, 0.0, 4.0, 5.0], dtype=float)
+    detection = Detection(
+        frame_idx=0,
+        tlwh=det_array.copy(),
+        score=0.9,
+        frame_size=(8, 8),
+    )
+
+    tracker._start_new_track(detection, 0)
+    track_obj = tracker._tracks[0]
+
+    tracker._update_track(track_obj, detection, 0)
+    assert track_obj.visual_tracker is not None
+    tracker._mark_missed(track_obj, 1)  # should swallow cv2.error internally
+    assert track_obj.visual_tracker is None
+
+
+def test_create_visual_tracker_trackernano(monkeypatch, tmp_path):
+    class DummyParams:
+        def __init__(self):
+            self.backbone = None
+            self.neckhead = None
+
+    created: dict[str, object] = {}
+
+    tmp_path.joinpath("trackernano_backbone.onnx").write_bytes(b"0")
+    tmp_path.joinpath("trackernano_neckhead.onnx").write_bytes(b"0")
+
+    monkeypatch.setattr(hybrid, "get_tracking_models_dir", lambda create=True: tmp_path)
+    monkeypatch.setattr(hybrid, "get_detection_models_dir", lambda create=True: tmp_path)
+    monkeypatch.setattr(hybrid, "get_models_dir", lambda create=True: tmp_path)
+
+    def fake_create(params):
+        created["params"] = params
+        return "nano"
+
+    monkeypatch.setattr(
+        hybrid,
+        "cv2",
+        type(
+            "FakeCV2",
+            (),
+            {
+                "TrackerNano_Params": DummyParams,
+                "TrackerNano_create": fake_create,
+            },
+        ),
+    )
+
+    tracker = hybrid._create_visual_tracker("trackernano")
+    assert tracker == "nano"
+    assert created["params"].backbone == str(tmp_path / "trackernano_backbone.onnx")
+    assert created["params"].neckhead == str(tmp_path / "trackernano_neckhead.onnx")
+
+
+def test_create_visual_tracker_trackernano_missing_weights(monkeypatch, tmp_path):
+    class DummyParams:
+        def __init__(self):
+            self.backbone = None
+            self.neckhead = None
+
+    monkeypatch.setattr(hybrid, "get_tracking_models_dir", lambda create=True: tmp_path)
+    monkeypatch.setattr(hybrid, "get_detection_models_dir", lambda create=True: tmp_path)
+    monkeypatch.setattr(hybrid, "get_models_dir", lambda create=True: tmp_path)
+    monkeypatch.setattr(
+        hybrid,
+        "_TRACKERNANO_FILENAMES",
+        {"backbone": ("missing_backbone.onnx",), "neckhead": ("missing_head.onnx",)},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        hybrid,
+        "cv2",
+        type(
+            "FakeCV2",
+            (),
+            {
+                "TrackerNano_Params": DummyParams,
+                "TrackerNano_create": lambda params: "nano",
+            },
+        ),
+    )
+
+    tracker = hybrid._create_visual_tracker("trackernano")
+    assert tracker is None
 
 
 def _make_track(
