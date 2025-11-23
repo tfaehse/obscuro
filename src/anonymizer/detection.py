@@ -3,9 +3,11 @@ from __future__ import annotations
 import contextlib
 import logging
 import math
+import tempfile
 import threading
 import time
-from collections.abc import Callable, Iterable
+import uuid
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -14,8 +16,10 @@ import numpy as np
 import onnxruntime as ort
 import polars as pl
 
+from anonymizer.constants import DEFAULT_BLUR_CATEGORIES, DEFAULT_CATEGORY_MAPPING
 from anonymizer.paths import get_detection_models_dir
-from anonymizer.sahi_integration import DEFAULT_CATEGORY_MAPPING, SahiOnnxDetectionModel
+from anonymizer.sahi_integration import SahiOnnxDetectionModel
+from anonymizer.segmentation import decode_yolo_masks
 
 from .cancellation import CancellationException
 from .io.video import get_video_info, iter_frame_batches
@@ -38,6 +42,7 @@ class BaseDetector:
         nms_iou_threshold: float = 0.3,
         inference_size: int = 1920,
         execution_providers: list[str] | None = None,
+        categories_to_blur: Sequence[str] | None = None,
     ) -> None:
         self.model_path = Path(model_path)
         self.cancel_event = cancel_event
@@ -48,6 +53,8 @@ class BaseDetector:
         self.logger = logging.getLogger("obscuro.detection")
         self.nms_iou_threshold = float(max(0.0, min(nms_iou_threshold, 1.0)))
         self.inference_size = max(int(inference_size), 256)
+        self._mask_cache_dir = Path(tempfile.mkdtemp(prefix="obscuro_proto_"))
+        self._mask_proto_meta: dict[int, dict[str, Any]] = {}
 
         self.requested_execution_providers, session_opts = self._get_execution_providers(
             execution_providers
@@ -84,6 +91,14 @@ class BaseDetector:
         self.logger.info(
             f"Model training size inferred as {self.training_size}x{self.training_size} from filename '{model_stem}'"
         )
+        self.category_mapping = dict(DEFAULT_CATEGORY_MAPPING)
+        self._class_name_by_id = {
+            int(class_id): str(name)
+            for class_id, name in self.category_mapping.items()
+            if str(class_id).lstrip("-").isdigit()
+        }
+        self.num_classes = max(1, len(self._class_name_by_id))
+        self._allowed_class_ids = self._resolve_allowed_class_ids(categories_to_blur)
 
     # --------------------------------------------------------------------- #
     # Public API                                                            #
@@ -100,6 +115,38 @@ class BaseDetector:
         if isinstance(input, list) and all(isinstance(x, np.ndarray) for x in input):
             return self._detect_from_list(input)
         raise ValueError("Unsupported input type for detection")
+
+    @staticmethod
+    def _normalize_category_name(value: Any) -> str:
+        return str(value).strip().lower()
+
+    def _resolve_allowed_class_ids(self, categories: Sequence[str] | None) -> set[int] | None:
+        if categories is None:
+            categories = DEFAULT_BLUR_CATEGORIES
+        normalized = {self._normalize_category_name(cat) for cat in categories if str(cat).strip()}
+        if not normalized or "*" in normalized:
+            return None
+
+        allowed: set[int] = set()
+        for class_id, name in self._class_name_by_id.items():
+            if self._normalize_category_name(name) in normalized:
+                allowed.add(class_id)
+        for identifier in normalized:
+            if identifier.isdigit():
+                allowed.add(int(identifier))
+
+        if not allowed:
+            self.logger.warning(
+                "Configured blur categories %s did not match known detector classes %s",
+                sorted(normalized),
+                sorted(self._class_name_by_id.values()),
+            )
+        return allowed
+
+    def _filter_by_categories(self, df: pl.DataFrame) -> pl.DataFrame:
+        if df.is_empty() or self._allowed_class_ids is None:
+            return df
+        return df.filter(pl.col("object_class").is_in(list(self._allowed_class_ids)))
 
     def get_execution_provider_status(self) -> dict[str, Any]:
         primary_requested = (
@@ -133,7 +180,9 @@ class BaseDetector:
     def _detect_from_array(self, image: np.ndarray) -> pl.DataFrame:
         raise NotImplementedError
 
-    def _detect_from_list(self, images: list[np.ndarray]) -> pl.DataFrame:
+    def _detect_from_list(
+        self, images: list[np.ndarray], frame_ids: Sequence[int] | None = None
+    ) -> pl.DataFrame:
         raise NotImplementedError
 
     def _detect_from_batch_array(self, tensor: np.ndarray) -> pl.DataFrame:
@@ -251,6 +300,7 @@ class BaseDetector:
                 "frame_width": pl.Int64,
                 "frame_height": pl.Int64,
                 "is_confident": pl.Boolean,
+                "mask": pl.Object,
             }
         )
 
@@ -263,6 +313,155 @@ class BaseDetector:
         if image.ndim == 3 and image.shape[0] <= 4:
             return np.transpose(image, (1, 2, 0))
         return image
+
+    def _store_mask_proto(
+        self, frame_id: int, proto_slice: np.ndarray, meta: dict[str, Any]
+    ) -> None:
+        if frame_id in self._mask_proto_meta:
+            return
+        self._mask_cache_dir.mkdir(parents=True, exist_ok=True)
+        proto_arr = np.asarray(proto_slice, dtype=np.float16)
+        file_name = self._mask_cache_dir / f"{frame_id}_{uuid.uuid4().hex}.npy"
+        np.save(file_name, proto_arr)
+        self._mask_proto_meta[frame_id] = {
+            "path": file_name,
+            "scale": tuple(float(v) for v in meta.get("scale", (1.0, 1.0))),
+            "pad": tuple(float(v) for v in meta.get("pad", (0.0, 0.0))),
+            "original_shape": tuple(int(v) for v in meta.get("original_shape", (0, 0))),
+            "imgsz": int(self.imgsz),
+        }
+
+    def get_mask_proto_entry(self, frame_id: int) -> dict[str, Any] | None:
+        entry = self._mask_proto_meta.get(frame_id)
+        if entry is None:
+            return None
+        if "proto" not in entry:
+            proto_path = entry.get("path")
+            if proto_path and Path(proto_path).exists():
+                entry["proto"] = np.load(proto_path)
+        return entry
+
+    def release_mask_proto(self, frame_id: int) -> None:
+        entry = self._mask_proto_meta.pop(frame_id, None)
+        if not entry:
+            return
+        proto_path = entry.get("path")
+        if proto_path:
+            with contextlib.suppress(FileNotFoundError):
+                Path(proto_path).unlink()
+
+    def clear_mask_cache(self) -> None:
+        for frame_id in list(self._mask_proto_meta.keys()):
+            self.release_mask_proto(frame_id)
+        with contextlib.suppress(OSError):
+            self._mask_cache_dir.rmdir()
+
+    def decode_mask_from_payload(
+        self,
+        payload: dict[str, Any],
+        row: dict[str, Any],
+        frame_shape: tuple[int, int] | None = None,
+    ) -> dict[str, Any] | None:
+        if payload.get("format") != "coeff":
+            return None
+        frame_id = int(payload.get("frame", -1))
+        entry = self.get_mask_proto_entry(frame_id)
+        if entry is None:
+            return None
+        proto = entry.get("proto")
+        if proto is None:
+            return None
+        coeff_bytes = payload.get("coeffs")
+        if not isinstance(coeff_bytes, bytes | bytearray):
+            return None
+        dtype = payload.get("dtype", "float16")
+        np_dtype = np.float16 if dtype == "float16" else np.float32
+        num_coeffs = int(payload.get("num_coeffs", proto.shape[0]))
+        coeffs = (
+            np.frombuffer(coeff_bytes, dtype=np_dtype, count=num_coeffs)
+            .reshape(1, -1)
+            .astype(np.float32, copy=False)
+        )
+        boxes = np.array(
+            [[row.get("x1", 0.0), row.get("y1", 0.0), row.get("x2", 0.0), row.get("y2", 0.0)]],
+            dtype=np.float32,
+        )
+        meta = {
+            "pad": entry.get("pad", (0.0, 0.0)),
+            "scale": entry.get("scale", (1.0, 1.0)),
+            "original_shape": entry.get("original_shape", (0, 0)),
+        }
+        masks = decode_yolo_masks(coeffs, proto.astype(np.float32), boxes, meta, entry["imgsz"])
+        return masks[0] if masks else None
+
+    def decode_masks_for_rows(
+        self,
+        rows: Sequence[dict[str, Any]],
+        frame_shape: tuple[int, int] | None = None,
+    ) -> list[dict[str, Any] | None]:
+        results: list[dict[str, Any] | None] = [None] * len(rows)
+        grouped: dict[int, list[tuple[int, dict[str, Any], dict[str, Any]]]] = {}
+        for idx, row in enumerate(rows):
+            payload = row.get("mask")
+            if not isinstance(payload, dict):
+                continue
+            if payload.get("format") != "coeff":
+                continue
+            frame_id = int(payload.get("frame", -1))
+            grouped.setdefault(frame_id, []).append((idx, row, payload))
+
+        for frame_id, items in grouped.items():
+            entry = self.get_mask_proto_entry(frame_id)
+            if entry is None:
+                continue
+            proto = entry.get("proto")
+            if proto is None:
+                continue
+            coeff_list: list[np.ndarray] = []
+            box_list: list[list[float]] = []
+            valid_indices: list[int] = []
+            for idx, row, payload in items:
+                coeff_bytes = payload.get("coeffs")
+                if not isinstance(coeff_bytes, bytes | bytearray):
+                    continue
+                dtype = str(payload.get("dtype", "float16")).lower()
+                np_dtype = np.float16 if dtype == "float16" else np.float32
+                num_coeffs = int(payload.get("num_coeffs", proto.shape[0]))
+                coeff_arr = np.frombuffer(coeff_bytes, dtype=np_dtype, count=num_coeffs).astype(
+                    np.float32, copy=False
+                )
+                coeff_list.append(coeff_arr)
+                box_list.append(
+                    [
+                        float(row.get("x1", 0.0)),
+                        float(row.get("y1", 0.0)),
+                        float(row.get("x2", 0.0)),
+                        float(row.get("y2", 0.0)),
+                    ]
+                )
+                valid_indices.append(idx)
+            if not coeff_list:
+                continue
+            coeffs = np.stack(coeff_list, axis=0)
+            boxes = np.asarray(box_list, dtype=np.float32)
+            meta = {
+                "pad": entry.get("pad", (0.0, 0.0)),
+                "scale": entry.get("scale", (1.0, 1.0)),
+                "original_shape": entry.get(
+                    "original_shape",
+                    (frame_shape[0], frame_shape[1]) if frame_shape else (0, 0),
+                ),
+            }
+            masks = decode_yolo_masks(
+                coeffs,
+                proto.astype(np.float32),
+                boxes,
+                meta,
+                entry.get("imgsz", self.imgsz),
+            )
+            for idx, mask in zip(valid_indices, masks, strict=False):
+                results[idx] = mask
+        return results
 
     def _build_detection_dataframe(
         self,
@@ -277,6 +476,7 @@ class BaseDetector:
         frame_widths: Iterable[int],
         frame_heights: Iterable[int],
         thresholds: Iterable[float],
+        masks: Iterable[dict[str, Any] | None] | None = None,
     ) -> pl.DataFrame:
         frame_list = list(frames)
         if not frame_list:
@@ -288,6 +488,13 @@ class BaseDetector:
             float(score) >= float(thresh)
             for score, thresh in zip(score_list, threshold_list, strict=False)
         ]
+
+        if masks is None:
+            mask_values: list[dict[str, Any] | None] = [None] * len(frame_list)
+        else:
+            mask_values = list(masks)
+            if len(mask_values) != len(frame_list):
+                raise ValueError("Length of masks must match number of detections")
 
         return pl.DataFrame(
             {
@@ -301,6 +508,7 @@ class BaseDetector:
                 "frame_width": list(frame_widths),
                 "frame_height": list(frame_heights),
                 "is_confident": confident,
+                "mask": mask_values,
             }
         )
 
@@ -373,6 +581,7 @@ class BaseDetector:
         self,
         outputs,
         metas: list[dict[str, Any]],
+        frame_ids: Sequence[int] | None = None,
         throwaway_score: float = 0.05,
     ) -> pl.DataFrame:
         if self.cancel_event and self.cancel_event.is_set():
@@ -382,9 +591,13 @@ class BaseDetector:
             return self._empty_result_df()
 
         detections = outputs[0]
+        mask_proto = outputs[1] if len(outputs) > 1 and isinstance(outputs[1], np.ndarray) else None
 
-        if len(detections.shape) == 3 and detections.shape[1] == 6:
+        if len(detections.shape) == 3 and detections.shape[1] < detections.shape[2]:
             detections = detections.transpose(0, 2, 1)
+
+        if frame_ids is None:
+            frame_ids = list(range(min(len(detections), len(metas))))
 
         frames: list[int] = []
         x1_list: list[float] = []
@@ -396,6 +609,7 @@ class BaseDetector:
         width_list: list[int] = []
         height_list: list[int] = []
         threshold_list: list[float] = []
+        mask_payloads: list[dict[str, Any] | None] = []
 
         for image_index in range(min(len(detections), len(metas))):
             image_detections = detections[image_index]
@@ -410,12 +624,40 @@ class BaseDetector:
                 continue
 
             coords = image_detections[:, :4]
-            scores = image_detections[:, 4:]
-            if coords.size == 0 or scores.size == 0:
+            remainder = image_detections[:, 4:]
+            if coords.size == 0 or remainder.size == 0:
                 continue
 
-            best_class = scores.argmax(axis=1)
-            best_scores = scores[np.arange(scores.shape[0]), best_class]
+            mask_dim = mask_proto.shape[1] if mask_proto is not None else 0
+            coeff_split = remainder.shape[1]
+            mask_coeffs = None
+            if mask_dim > 0 and remainder.shape[1] > mask_dim:
+                coeff_split = remainder.shape[1] - mask_dim
+                mask_coeffs = remainder[:, coeff_split:]
+            class_region = remainder[:, :coeff_split]
+            if class_region.shape[1] <= 1:
+                continue
+
+            objectness = class_region[:, 0]
+            class_scores = class_region[:, 1:]
+            if class_scores.size == 0:
+                continue
+
+            available_classes = class_scores.shape[1]
+            usable_classes = min(self.num_classes, available_classes)
+            if usable_classes <= 0:
+                continue
+
+            class_scores = class_scores[:, :usable_classes]
+            class_probs = _sigmoid(objectness)[:, None] * _sigmoid(class_scores)
+
+            proto_slice = None
+            frame_id = int(frame_ids[image_index]) if frame_ids else image_index
+            if mask_proto is not None and mask_proto.shape[0] > image_index:
+                proto_slice = mask_proto[image_index]
+                self._store_mask_proto(frame_id, proto_slice, meta)
+            best_class = class_probs.argmax(axis=1)
+            best_scores = class_probs[np.arange(class_probs.shape[0]), best_class]
 
             pre_keep_mask = best_scores >= throwaway_score
             if not np.any(pre_keep_mask):
@@ -424,7 +666,8 @@ class BaseDetector:
             best_class = best_class[pre_keep_mask]
             best_scores = best_scores[pre_keep_mask]
 
-            thresholds = np.where(best_class == 0, self.plate_threshold, self.face_threshold)
+            thresholds = np.full(best_scores.shape, self.face_threshold, dtype=float)
+            thresholds[best_class == 0] = self.plate_threshold
             keep_mask = best_scores > 0.0
             if not np.any(keep_mask):
                 continue
@@ -433,6 +676,8 @@ class BaseDetector:
             best_class = best_class[keep_mask]
             best_scores = best_scores[keep_mask]
             thresholds = thresholds[keep_mask]
+            if mask_coeffs is not None:
+                mask_coeffs = mask_coeffs[pre_keep_mask][keep_mask]
 
             half_wh = coords[:, 2:4] / 2.0
             centers = coords[:, :2]
@@ -460,6 +705,8 @@ class BaseDetector:
             best_class = best_class[valid_mask]
             best_scores = best_scores[valid_mask]
             thresholds = thresholds[valid_mask]
+            if mask_coeffs is not None:
+                mask_coeffs = mask_coeffs[valid_mask]
 
             boxes_xyxy = np.column_stack((mins[:, 0], mins[:, 1], maxs[:, 0], maxs[:, 1])).astype(
                 np.float32
@@ -478,8 +725,9 @@ class BaseDetector:
             kept_scores = best_scores[keep_indices]
             kept_classes = best_class[keep_indices]
             kept_thresh = thresholds[keep_indices]
+            kept_coeffs = mask_coeffs[keep_indices] if mask_coeffs is not None else None
 
-            frames.extend([image_index] * len(keep_indices))
+            frames.extend([frame_id] * len(keep_indices))
             x1_list.extend(kept_mins[:, 0].astype(float))
             y1_list.extend(kept_mins[:, 1].astype(float))
             x2_list.extend(kept_maxs[:, 0].astype(float))
@@ -489,8 +737,23 @@ class BaseDetector:
             width_list.extend([original_w] * len(keep_indices))
             height_list.extend([original_h] * len(keep_indices))
             threshold_list.extend(kept_thresh.astype(float))
+            if kept_coeffs is not None and proto_slice is not None:
+                coeff_data = kept_coeffs.astype(np.float16, copy=False)
+                payloads = [
+                    {
+                        "format": "coeff",
+                        "frame": frame_id,
+                        "dtype": "float16",
+                        "num_coeffs": int(coeff_data.shape[1]),
+                        "coeffs": coeff_data[idx].tobytes(),
+                    }
+                    for idx in range(len(keep_indices))
+                ]
+            else:
+                payloads = [None] * len(keep_indices)
+            mask_payloads.extend(payloads)
 
-        return self._build_detection_dataframe(
+        df = self._build_detection_dataframe(
             frames=frames,
             x1=x1_list,
             y1=y1_list,
@@ -501,7 +764,14 @@ class BaseDetector:
             frame_widths=width_list,
             frame_heights=height_list,
             thresholds=threshold_list,
+            masks=mask_payloads,
         )
+        return self._filter_by_categories(df)
+
+
+def _sigmoid(values: np.ndarray) -> np.ndarray:
+    clipped = np.clip(values, -64.0, 64.0)
+    return 1.0 / (1.0 + np.exp(-clipped))
 
 
 def _batched_nms_numpy(
@@ -573,9 +843,11 @@ class FrameDetector(BaseDetector):
         input_tensor, meta = self._preprocess(image)
         outputs = self.session.run(None, {self._input_name: input_tensor})
         self._report_progress(100, "Single image processing complete")
-        return self._postprocess(outputs, [meta])
+        return self._postprocess(outputs, [meta], frame_ids=[0])
 
-    def _detect_from_list(self, images: list[np.ndarray]) -> pl.DataFrame:
+    def _detect_from_list(
+        self, images: list[np.ndarray], frame_ids: Sequence[int] | None = None
+    ) -> pl.DataFrame:
         self._check_cancelled()
 
         batch = []
@@ -594,7 +866,7 @@ class FrameDetector(BaseDetector):
         input_tensor = np.stack(batch, axis=0)
         outputs = self.session.run(None, {self._input_name: input_tensor})
 
-        return self._postprocess(outputs, metas)
+        return self._postprocess(outputs, metas, frame_ids=frame_ids)
 
     def _detect_from_batch_array(self, tensor: np.ndarray) -> pl.DataFrame:
         self._report_progress(0, "Starting batch array processing")
@@ -612,7 +884,8 @@ class FrameDetector(BaseDetector):
             batch_images = []
             for image in batch:
                 batch_images.append(self._ensure_channel_last(image))
-            df = self._detect_from_list(batch_images)
+            frame_ids = list(range(i, i + len(batch_images)))
+            df = self._detect_from_list(batch_images, frame_ids=frame_ids)
             if not df.is_empty():
                 batch_results.append(df)
 
@@ -663,11 +936,12 @@ class FrameDetector(BaseDetector):
                 int(frame_indices[-1]),
             )
 
-            df = self._detect_from_list(frames_bgr)
+            df = self._detect_from_list(frames_bgr, frame_ids=frame_indices.tolist())
             if not df.is_empty():
                 local_indices = df.get_column("frame").to_numpy()
-                mapped = frame_indices[local_indices]
-                df = df.with_columns(pl.Series(name="frame", values=mapped, dtype=pl.Int64))
+                if local_indices.size and local_indices.max() < len(frame_indices):
+                    mapped = frame_indices[local_indices]
+                    df = df.with_columns(pl.Series(name="frame", values=mapped, dtype=pl.Int64))
                 results.append(df)
 
             processed_batches += 1
@@ -778,6 +1052,7 @@ class SahiDetector(BaseDetector):
         width_list: list[int] = []
         height_list: list[int] = []
         threshold_list: list[float] = []
+        mask_payloads: list[dict[str, Any] | None] = []
 
         target_width = float(original_width) if original_width is not None else float(frame_width)
         target_height = (
@@ -819,8 +1094,25 @@ class SahiDetector(BaseDetector):
             width_list.append(round(target_width))
             height_list.append(round(target_height))
             threshold_list.append(threshold)
+            mask_payload: dict[str, Any] | None = None
+            mask_obj = getattr(prediction, "mask", None)
+            if mask_obj is not None and getattr(mask_obj, "data", None) is not None:
+                mask_data = np.asarray(mask_obj.data)
+                if mask_data.ndim >= 2:
+                    mask_resized = cv2.resize(
+                        mask_data.astype(float),
+                        (int(target_width), int(target_height)),
+                        interpolation=cv2.INTER_LINEAR,
+                    )
+                    binary = (mask_resized >= 0.5).reshape(-1)
+                    mask_payload = {
+                        "format": "binary",
+                        "size": (int(target_height), int(target_width)),
+                        "data": binary,
+                    }
+            mask_payloads.append(mask_payload)
 
-        return self._build_detection_dataframe(
+        df = self._build_detection_dataframe(
             frames=frames,
             x1=x1_list,
             y1=y1_list,
@@ -831,7 +1123,9 @@ class SahiDetector(BaseDetector):
             frame_widths=width_list,
             frame_heights=height_list,
             thresholds=threshold_list,
+            masks=mask_payloads,
         )
+        return self._filter_by_categories(df)
 
     def _predict_single_image(self, image: np.ndarray) -> pl.DataFrame:
         prepared = self._prepare_image_for_sahi(image)

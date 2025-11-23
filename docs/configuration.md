@@ -334,6 +334,24 @@ sahi_overlap_ratio = 0.3
 blur-cli video input.mp4 --use-sahi --sahi-overlap 0.3
 ```
 
+### `detection.classes_to_blur`
+**Type:** List of strings
+**Default:** `["person", "car", "bus", "motorcycle", "truck"]`
+**Choices:** `person`, `car`, `bus`, `motorcycle`, `truck`
+
+Controls which detector classes are kept for downstream tracking/blurring. Non-listed classes are discarded immediately after detection. Use this to enable vehicle or person blurring when using segmentation-capable models.
+
+**TOML:**
+```toml
+[detection]
+classes_to_blur = ["person", "car", "bus", "motorcycle", "truck"]
+```
+
+**CLI:**
+```bash
+blur-cli video input.mp4 --blur-classes person,car,truck
+```
+
 ---
 
 ## Tracking Configuration

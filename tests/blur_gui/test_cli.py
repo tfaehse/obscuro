@@ -430,6 +430,7 @@ class TestGetConfigForArgs:
         args.blur_strength = 15
         args.plate_threshold = 0.5
         args.face_threshold = 0.6
+        args.blur_classes = "license_plate,vehicle"
         args.tracker_params = '{"distance_gate":0.55}'
         args.tracker = None
         args.use_sahi = True
@@ -448,6 +449,7 @@ class TestGetConfigForArgs:
         assert result.blur.strength == 15
         assert result.detection.plate_threshold == 0.5
         assert result.detection.face_threshold == 0.6
+        assert result.detection.classes_to_blur == ["license_plate", "vehicle"]
         mock_set_config.assert_called_once()
         assert result.detection.use_sahi is True
         assert result.detection.sahi_overlap_ratio == 0.3

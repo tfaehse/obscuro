@@ -44,6 +44,7 @@ class ActiveTrack:
     debug_color: tuple[int, int, int] | None = None
     vt_embeddings: list[np.ndarray] = field(default_factory=list, repr=False)
     vt_embedding_rep: np.ndarray | None = field(default=None, repr=False)
+    mask: dict[str, object] | None = None
 
     def current_tlwh(self) -> np.ndarray:
         if self.smoothed_tlwh is not None:
@@ -105,6 +106,7 @@ class BaseTracker:
                     "age": pl.Int64,
                     "last_seen": pl.Int64,
                     "score": pl.Float64,
+                    "mask": pl.Null,
                 }
             )
 
@@ -314,6 +316,7 @@ class BaseTracker:
         track.frame_size = det.frame_size
         track.score = det.score
         track.last_seen = frame_idx
+        track.mask = det.mask
         track.hits += 1
         track.misses = 0
         track.state = (
@@ -325,6 +328,7 @@ class BaseTracker:
         track.debug_color = None
 
     def _mark_missed(self, track: ActiveTrack, frame_idx: int) -> None:
+        track.mask = None
         track.last_seen = frame_idx
         if track.misses > self.params.max_misses_M:
             track.state = TrackState.HIDDEN
@@ -345,6 +349,7 @@ class BaseTracker:
             score=det.score,
             frame_size=det.frame_size,
             smoothed_tlwh=det.tlwh.copy(),
+            mask=det.mask,
         )
         self._next_id += 1
         track.state = (
@@ -380,6 +385,7 @@ class BaseTracker:
             should_blur=should_blur,
             frame_size=track.frame_size,
             debug_color=track.debug_color,
+            mask=track.mask,
         )
         track.history.append(observation)
         track.debug_color = None
@@ -430,12 +436,14 @@ class BaseTracker:
             tlwh = np.array([x1, y1, x2 - x1, y2 - y1], dtype=float)
             score = float(row.get("confidence", row.get("score", 1.0)))
             is_confident = bool(row.get("is_confident", True))
+            mask = row.get("mask")
             detection = Detection(
                 frame_idx=frame_idx,
                 tlwh=tlwh,
                 score=score,
                 frame_size=frame_size,
                 is_confident=is_confident,
+                mask=mask,
             )
             if is_confident:
                 confident.append(detection)

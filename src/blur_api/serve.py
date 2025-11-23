@@ -31,6 +31,7 @@ from anonymizer.paths import (
     ensure_required_models_present,
     get_detection_models_dir,
 )
+from anonymizer.sahi_integration import DEFAULT_CATEGORY_MAPPING
 from anonymizer.tracking import TRACKER_FACTORY
 
 app = FastAPI()
@@ -367,6 +368,8 @@ async def get_config_options():
             "inference_size_range": [256, 8192],
             "current_sahi_overlap": global_config.detection.sahi_overlap_ratio,
             "sahi_overlap_range": [0.0, 0.99],
+            "available_classes": sorted(set(DEFAULT_CATEGORY_MAPPING.values())),
+            "current_classes": list(global_config.detection.classes_to_blur),
         },
         "tracking": {
             "types": sorted(TRACKER_FACTORY.keys()),

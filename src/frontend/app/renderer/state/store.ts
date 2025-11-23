@@ -193,6 +193,7 @@ export class Store {
         use_sahi: true,
         inference_size: 1920,
         sahi_overlap_ratio: 0.2,
+        classes_to_blur: ['person', 'car', 'bus', 'motorcycle', 'truck'],
       },
       tracking: {
         type: 'bytetrack',

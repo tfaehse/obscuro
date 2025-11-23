@@ -225,6 +225,7 @@ export class ConfigController {
         use_sahi: options.detection.use_sahi ?? current.detection.use_sahi,
         inference_size: options.detection.current_inference_size ?? current.detection.inference_size,
         sahi_overlap_ratio: options.detection.current_sahi_overlap ?? current.detection.sahi_overlap_ratio,
+        classes_to_blur: options.detection.current_classes ?? current.detection.classes_to_blur,
       },
       tracking: {
         type: options.tracking.current_type as any,

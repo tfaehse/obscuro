@@ -192,7 +192,7 @@ def blur_video(args):
         return ret
 
     except Exception as e:
-        logger.error(f"Error processing video: {e}", exc_info=True)
+        logger.error(f"CLI: Error processing video: {e}", exc_info=True)
         return 1
 
 
@@ -244,6 +244,15 @@ def get_config_for_args(args) -> AnonymizerConfig:
         detection_overrides["inference_size"] = max(256, int(args.inference_size))
     if hasattr(args, "sahi_overlap") and args.sahi_overlap is not None:
         detection_overrides["sahi_overlap_ratio"] = args.sahi_overlap
+    blur_classes_arg = getattr(args, "blur_classes", None)
+    if blur_classes_arg:
+        if isinstance(blur_classes_arg, str):
+            classes = [cls.strip() for cls in blur_classes_arg.split(",") if cls.strip()]
+        elif isinstance(blur_classes_arg, list | tuple):
+            classes = [str(cls).strip() for cls in blur_classes_arg if str(cls).strip()]
+        else:
+            classes = [str(blur_classes_arg).strip()]
+        detection_overrides["classes_to_blur"] = classes
     if detection_overrides:
         merge(override_tree, {"detection": detection_overrides})
 
@@ -479,6 +488,10 @@ Examples:
             "--blur-type",
             choices=["gaussian", "pixelate", "blackout", "debug"],
             help="Type of blur to apply (overrides config file)",
+        )
+        subparser.add_argument(
+            "--blur-classes",
+            help="Comma-separated detector classes to blur (e.g., 'license_plate,face')",
         )
         subparser.add_argument(
             "--embedding-similarity-gate",

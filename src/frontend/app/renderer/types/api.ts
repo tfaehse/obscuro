@@ -24,6 +24,7 @@ export interface DetectionConfig {
   use_sahi: boolean;
   inference_size: number;
   sahi_overlap_ratio: number;
+  classes_to_blur: string[];
 }
 
 export type TrackerType = 'dummy' | 'bytetrack' | 'botsort' | 'hybrid_sot' | 'fused';
@@ -95,6 +96,8 @@ export interface ConfigOptions {
     inference_size_range: [number, number];
     current_sahi_overlap: number;
     sahi_overlap_range: [number, number];
+    available_classes: string[];
+    current_classes: string[];
   };
   tracking: {
     types: string[];

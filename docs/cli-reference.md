@@ -134,6 +134,13 @@ Default: `0.5`
 blur-cli image input.jpg --face-threshold 0.6
 ```
 
+###### `--blur-classes LIST`
+Comma-separated list of detector classes to blur. Supported values: `person`, `car`, `bus`, `motorcycle`, `truck`.
+
+```bash
+blur-cli video input.mp4 --blur-classes person,car,truck
+```
+
 ###### `--batch-size N`
 Number of frames/images processed per inference call. Higher values can improve GPU throughput but use more memory.
 

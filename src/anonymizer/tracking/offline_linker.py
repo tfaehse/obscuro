@@ -137,6 +137,7 @@ def _clone_observation(obs: TrackObservation, new_track_id: int) -> TrackObserva
         should_blur=obs.should_blur,
         frame_size=obs.frame_size,
         debug_color=obs.debug_color,
+        mask=obs.mask,
     )
 
 
@@ -172,6 +173,7 @@ def _interpolate_gap(
                 should_blur=False,
                 frame_size=frame_size,
                 debug_color=(255, 255, 0),
+                mask=None,
             )
         )
     return result

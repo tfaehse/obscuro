@@ -86,6 +86,7 @@ class Anonymizer(CancellationMixin):
             inference_size=self.config.detection.inference_size,
             sahi_overlap_ratio=self.config.detection.sahi_overlap_ratio,
             execution_providers=execution_providers,
+            categories_to_blur=self.config.detection.classes_to_blur,
         )
 
         # Create tracker using factory (video_source will be set later)
@@ -107,6 +108,7 @@ class Anonymizer(CancellationMixin):
             cancel_event=self.cancel_event,
             progress_callback=self.progress_callback,
         )
+        self.blurrer.set_mask_decoder(self.detector)
 
         # Ensure component hooks stay in sync with runtime-provided callbacks
         self.set_runtime_hooks(cancel_event=cancel_event, progress_callback=progress_callback)
@@ -489,6 +491,8 @@ class Anonymizer(CancellationMixin):
             raise
         except Exception as e:
             print(f"Error processing video: {e}")
+        finally:
+            self.detector.clear_mask_cache()
 
     def _detect(self, input: NDArrayUint8 | Path) -> pl.DataFrame:
         """
@@ -516,6 +520,7 @@ class Anonymizer(CancellationMixin):
         """
         detections = self._detect(input_path)
         self.blurrer.blur_image_file(input_path, detections, output_path)
+        self.detector.clear_mask_cache()
 
     def blur_image_array(self, image: NDArrayUint8) -> NDArrayUint8:
         """
@@ -525,7 +530,9 @@ class Anonymizer(CancellationMixin):
         :return: Blurred image as numpy array
         """
         detections = self._detect(image)
-        return self.blurrer.blur_image(image, detections)
+        result = self.blurrer.blur_image(image, detections)
+        self.detector.clear_mask_cache()
+        return result
 
     def blur_image_arrays(self, images: list[NDArrayUint8]) -> list[NDArrayUint8]:
         """

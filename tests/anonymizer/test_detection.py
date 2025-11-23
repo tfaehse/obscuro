@@ -18,7 +18,9 @@ from anonymizer.detection import Detector, FrameDetector
 from anonymizer.sahi_integration import SahiOnnxDetectionModel
 
 
-def _build_detector_with_session(session_output=None, *, use_sahi: bool = False):
+def _build_detector_with_session(
+    session_output=None, *, use_sahi: bool = False, categories_to_blur=None
+):
     """Instantiate a detector with a mocked ONNX session."""
     if session_output is None:
         session_output = [
@@ -47,7 +49,11 @@ def _build_detector_with_session(session_output=None, *, use_sahi: bool = False)
         fake_session.run.return_value = session_output
         fake_session.get_providers.return_value = ["CPUExecutionProvider"]
         mock_session.return_value = fake_session
-        detector = Detector(Path("fake_model.onnx"), use_sahi=use_sahi)
+        detector = Detector(
+            Path("fake_model.onnx"),
+            use_sahi=use_sahi,
+            categories_to_blur=categories_to_blur,
+        )
 
     return detector, fake_session
 
@@ -137,6 +143,28 @@ class TestDetector:
             detector = Detector(model_path)
 
         assert detector.imgsz == 640  # Fallback size
+
+    def test_detector_filters_configured_categories(self):
+        """Detector should drop classes not in the blur list."""
+        session_output = [
+            np.array(
+                [
+                    [
+                        [50.0, 50.0, 10.0, 10.0, 0.9, 0.1, 0.0, 0.0],
+                        [70.0, 70.0, 12.0, 12.0, 0.1, 0.8, 0.2, 0.1],
+                    ]
+                ],
+                dtype=np.float32,
+            )
+        ]
+        detector, _ = _build_detector_with_session(
+            session_output=session_output,
+            categories_to_blur=["face"],
+        )
+        meta = {"scale": (1.0, 1.0), "pad": (0.0, 0.0), "original_shape": (640, 640)}
+        df = detector._postprocess(session_output, [meta])
+        assert not df.is_empty()
+        assert set(df.get_column("object_class").to_list()) == {1}
 
     def test_sahi_matches_standard_detection(self, sample_image):
         """SAHI integration should align with standard inference for identical outputs."""

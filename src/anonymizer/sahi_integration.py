@@ -11,14 +11,10 @@ from sahi.predict import PredictionResult
 from sahi.prediction import ObjectPrediction
 from sahi.slicing import slice_image
 
+from anonymizer.constants import DEFAULT_CATEGORY_MAPPING
+
 if TYPE_CHECKING:
     from .detection import Detector
-
-
-DEFAULT_CATEGORY_MAPPING = {
-    "0": "license_plate",
-    "1": "face",
-}
 
 
 class SahiOnnxDetectionModel(DetectionModel):
@@ -72,7 +68,7 @@ class SahiOnnxDetectionModel(DetectionModel):
         outputs = self.model.run(None, {self._input_name: input_tensor})
 
         self._last_meta = [meta]
-        dataframe = self.detector._postprocess(outputs, [meta])  # pylint: disable=protected-access
+        dataframe = self.detector._postprocess(outputs, [meta], frame_ids=[0])  # pylint: disable=protected-access
         self._last_dataframe = dataframe
         self._original_predictions = dataframe
 
@@ -123,7 +119,8 @@ class SahiOnnxDetectionModel(DetectionModel):
                 offsets.append((tile["starting_pixel"][0], tile["starting_pixel"][1]))
             batch_tensor = np.stack(tiles, axis=0)
             outputs = self.model.run(None, {self._input_name: batch_tensor})
-            df_chunk = self.detector._postprocess(outputs, metas)
+            frame_ids = list(range(len(metas)))
+            df_chunk = self.detector._postprocess(outputs, metas, frame_ids=frame_ids)
             for j in range(len(chunk)):
                 tile_df = df_chunk.filter(pl.col("frame") == j)
                 if tile_df.is_empty():

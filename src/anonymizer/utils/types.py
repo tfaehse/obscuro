@@ -5,7 +5,14 @@ Data types for the anonymizer package.
 
 class Detection:
     def __init__(
-        self, x1: float, y1: float, x2: float, y2: float, confidence: float, object_class: int
+        self,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        confidence: float,
+        object_class: int,
+        mask: object | None = None,
     ):
         """
         Detection with relative coordinates (0-1).
@@ -20,6 +27,7 @@ class Detection:
         self.y2 = y2
         self.confidence = confidence
         self.object_class = object_class
+        self.mask = mask
 
     @property
     def box(self):

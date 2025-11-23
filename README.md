@@ -4,7 +4,7 @@
   <img src="docs/assets/obscuro-icon.png" alt="Obscuro logo" width="140" height="140" />
 </p>
 
-Desktop-first tooling for anonymizing dashcam footage: optimized ONNX/SAHI detector pipeline, FastAPI backend, CLI utilities, and an Electron UI with live previews. Trackers include ByteTrack/BotSort plus a fused distance+shape+embedding tracker (with Hybrid SOT built on top for detector gaps).
+Desktop-first tooling for anonymizing dashcam footage: optimized ONNX/SAHI detector pipeline, FastAPI backend, CLI utilities, and an Electron UI with live previews. Trackers include ByteTrack/BotSort plus a fused distance+shape+embedding tracker (with Hybrid SOT built on top for detector gaps). Detection targets are configurable—blur license plates and faces by default, or extend to vehicles, two-wheelers, and pedestrians when using segmentation-enabled models.
 
 ## Documentation
 

@@ -108,6 +108,7 @@ class DummyTracker:
                     last_seen=frame_idx,
                     score=float(row.get("confidence", 1.0)),
                     should_blur=True,
+                    mask=row.get("mask"),
                 )
                 outputs.append(observation.as_dict())
                 self._timeline.append(observation)
