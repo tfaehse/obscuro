@@ -263,8 +263,8 @@ export class PreviewUI {
           model: { name: config.model.name },
           blur: { type: config.blur.type, strength: config.blur.strength },
           detection: {
-            plate_threshold: config.detection.plate_threshold,
-            face_threshold: config.detection.face_threshold,
+            confidence_threshold: config.detection.confidence_threshold,
+            low_score_threshold: config.detection.low_score_threshold,
             batch_size: config.detection.batch_size,
             use_sahi: config.detection.use_sahi,
             inference_size: config.detection.inference_size,

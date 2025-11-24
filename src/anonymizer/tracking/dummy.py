@@ -63,12 +63,12 @@ class DummyTracker:
                     "last_seen": pl.Int64,
                     "score": pl.Float64,
                     "should_blur": pl.Boolean,
+                    "mask": pl.Int64,
                 }
             )
 
         outputs: list[dict] = []
-        ema_alpha = np.clip(self.params.ema_alpha, 0.0, 1.0)
-        dilation_pct = max(0.0, self.params.bbox_dilate_pct)
+        # Force no smoothing/dilation for dummy tracker to mirror detections exactly.
 
         for frame_key, frame_df in detections.group_by("frame", maintain_order=True):
             frame_idx = frame_key[0] if isinstance(frame_key, tuple) else int(frame_key)
@@ -87,11 +87,11 @@ class DummyTracker:
                     dtype=float,
                 )
                 # Apply EMA smoothing per detection index
-                prev = self._ema_state.get(det_index)
-                smoothed = tlwh if prev is None else ema_alpha * tlwh + (1.0 - ema_alpha) * prev
+                # No smoothing/dilation
+                smoothed = tlwh
                 self._ema_state[det_index] = smoothed
 
-                dilated = self._dilate_box(smoothed, dilation_pct)
+                dilated = smoothed
 
                 track_id = self._track_ids.get(det_index)
                 if track_id is None:

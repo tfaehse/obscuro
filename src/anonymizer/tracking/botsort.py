@@ -26,6 +26,8 @@ class BotSortTracker(BaseTracker):
         params: TrackerParams | None = None,
         cancel_event=None,
         progress_callback=None,
+        confidence_threshold: float = 0.5,
+        low_score_threshold: float = 0.1,
     ) -> None:
         super().__init__(
             video_source,
@@ -33,10 +35,29 @@ class BotSortTracker(BaseTracker):
             cancel_event=cancel_event,
             progress_callback=progress_callback,
         )
+        self._high_score_threshold = confidence_threshold
+        self._low_score_threshold = low_score_threshold
         self._prev_centers: list[tuple[float, float]] = []
 
-    def reconfigure(self, params: TrackerParams) -> None:
+    def set_thresholds(
+        self,
+        confidence_threshold: float | None = None,
+        low_score_threshold: float | None = None,
+    ) -> None:
+        """Update detection thresholds at runtime."""
+        if confidence_threshold is not None:
+            self._high_score_threshold = confidence_threshold
+        if low_score_threshold is not None:
+            self._low_score_threshold = low_score_threshold
+
+    def reconfigure(
+        self,
+        params: TrackerParams,
+        confidence_threshold: float | None = None,
+        low_score_threshold: float | None = None,
+    ) -> None:
         super().reconfigure(params)
+        self.set_thresholds(confidence_threshold, low_score_threshold)
         self._prev_centers.clear()
 
     def _process_frame(
@@ -47,7 +68,7 @@ class BotSortTracker(BaseTracker):
     ) -> list[TrackObservation]:
         self._predict_tracks()
 
-        detections_list = list(detections)
+        detections_list = [*detections, *(low_conf_detections or [])]
         matches: list[tuple[int, int]] = []
 
         # Stage 1: tight distance gate
@@ -89,7 +110,7 @@ class BotSortTracker(BaseTracker):
             low_pool: list[int] = []
             for det_idx in unmatched_dets:
                 det = detections_list[det_idx]
-                if self.params.low_thresh <= det.score < self.params.high_thresh:
+                if self._low_score_threshold <= det.score < self._high_score_threshold:
                     low_pool.append(det_idx)
             if low_pool:
                 matches_low, unmatched_tracks, unmatched_dets = self._match_tracks(
@@ -122,7 +143,7 @@ class BotSortTracker(BaseTracker):
         # Spawn new tracks from remaining high-confidence detections
         for det_idx in unmatched_dets:
             det = detections_list[det_idx]
-            if det.score >= self.params.high_thresh:
+            if det.score >= self._high_score_threshold:
                 obs = self._start_new_track(det, frame_idx)
                 if obs:
                     observations.append(obs)

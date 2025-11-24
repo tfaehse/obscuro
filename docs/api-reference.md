@@ -108,8 +108,8 @@ Get available configuration options and current settings.
     "strength_range": [1, 100]
   },
   "detection": {
-    "current_plate_threshold": 0.5,
-    "current_face_threshold": 0.5,
+    "current_confidence_threshold": 0.5,
+    "current_low_score_threshold": 0.1,
     "current_batch_size": 4,
     "threshold_range": [0.0, 1.0],
     "use_sahi": true,
@@ -166,8 +166,8 @@ Get the current active configuration.
     "strength": 10
   },
   "detection": {
-    "plate_threshold": 0.5,
-    "face_threshold": 0.5,
+    "confidence_threshold": 0.5,
+    "low_score_threshold": 0.1,
     "batch_size": 4,
     "use_sahi": true,
     "inference_size": 1920,
@@ -292,8 +292,8 @@ The `config` field accepts a JSON string with nested configuration overrides:
     "strength": 20
   },
   "detection": {
-    "plate_threshold": 0.3,
-    "face_threshold": 0.4
+    "confidence_threshold": 0.3,
+    "low_score_threshold": 0.1
   }
 }
 ```
@@ -528,8 +528,8 @@ Most processing endpoints accept a `config` parameter for runtime overrides. The
     "strength": 25
   },
   "detection": {
-    "plate_threshold": 0.3,
-    "face_threshold": 0.4,
+    "confidence_threshold": 0.3,
+    "low_score_threshold": 0.1,
     "batch_size": 8,
     "use_sahi": true,
     "inference_size": 2560,

@@ -26,6 +26,8 @@ class FusedTracker(BaseTracker):
         params: TrackerParams | None = None,
         cancel_event=None,
         progress_callback=None,
+        confidence_threshold: float = 0.5,
+        low_score_threshold: float = 0.1,
     ) -> None:
         super().__init__(
             video_source,
@@ -34,6 +36,28 @@ class FusedTracker(BaseTracker):
             progress_callback=progress_callback,
         )
         self._embedding_model = get_embedding_model()
+        self._high_score_threshold = confidence_threshold
+        self._low_score_threshold = low_score_threshold
+
+    def set_thresholds(
+        self,
+        confidence_threshold: float | None = None,
+        low_score_threshold: float | None = None,
+    ) -> None:
+        """Update detection thresholds at runtime."""
+        if confidence_threshold is not None:
+            self._high_score_threshold = confidence_threshold
+        if low_score_threshold is not None:
+            self._low_score_threshold = low_score_threshold
+
+    def reconfigure(
+        self,
+        params: TrackerParams,
+        confidence_threshold: float | None = None,
+        low_score_threshold: float | None = None,
+    ) -> None:
+        super().reconfigure(params)
+        self.set_thresholds(confidence_threshold, low_score_threshold)
 
     def _process_frame(
         self,
@@ -44,14 +68,15 @@ class FusedTracker(BaseTracker):
         self._predict_tracks()
 
         frame = self._prepare_frame(self._get_frame(frame_idx))
+        detections = [*detections, *(low_conf_detections or [])]
         det_embeddings = self._compute_embeddings(frame, detections)
 
         # Split pools like ByteTrack
         high_indices: list[int] = []
         low_indices: list[int] = []
-        low_thresh = max(0.0, self.params.low_thresh) if self.params.use_low_score_pool else 1.1
+        low_thresh = max(0.0, self._low_score_threshold) if self.params.use_low_score_pool else 1.1
         for idx, det in enumerate(detections):
-            if det.score >= self.params.high_thresh:
+            if det.score >= self._high_score_threshold:
                 high_indices.append(idx)
             elif det.score >= low_thresh:
                 low_indices.append(idx)
@@ -182,7 +207,7 @@ class FusedTracker(BaseTracker):
                 cost = dist + 0.1 * shape_penalty
                 det_emb = det_embeddings[det_idx]
                 if det_emb is not None:
-                    det_emb = det_emb.astype(np.float32, copy=False)
+                    det_emb = det_emb.astype(np.float32)
                     if t_rep is not None:
                         rep_norm = t_rep / (np.linalg.norm(t_rep) + 1e-8)
                         det_norm = det_emb / (np.linalg.norm(det_emb) + 1e-8)

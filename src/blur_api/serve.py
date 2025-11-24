@@ -187,8 +187,8 @@ def get_model_key(anonymizer_config: AnonymizerConfig) -> str:
         f"{anonymizer_config.tracking.type.value}-"
         f"{int(anonymizer_config.tracking.use_offline_linker)}-"
         f"{params_key}-"
-        f"{anonymizer_config.detection.plate_threshold}-"
-        f"{anonymizer_config.detection.face_threshold}-"
+        f"{anonymizer_config.detection.confidence_threshold}-"
+        f"{anonymizer_config.detection.low_score_threshold}-"
         f"{int(anonymizer_config.detection.use_sahi)}-"
         f"{anonymizer_config.detection.inference_size}-"
         f"{anonymizer_config.detection.sahi_overlap_ratio}"
@@ -359,8 +359,8 @@ async def get_config_options():
             "strength_range": [1, 100],
         },
         "detection": {
-            "current_plate_threshold": global_config.detection.plate_threshold,
-            "current_face_threshold": global_config.detection.face_threshold,
+            "current_confidence_threshold": global_config.detection.confidence_threshold,
+            "current_low_score_threshold": global_config.detection.low_score_threshold,
             "current_batch_size": global_config.detection.batch_size,
             "threshold_range": [0.0, 1.0],
             "use_sahi": global_config.detection.use_sahi,

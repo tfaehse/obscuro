@@ -19,6 +19,8 @@ class ByteTrackTracker(BaseTracker):
         params: TrackerParams | None = None,
         cancel_event=None,
         progress_callback=None,
+        confidence_threshold: float = 0.5,
+        low_score_threshold: float = 0.1,
     ) -> None:
         super().__init__(
             video_source,
@@ -26,13 +28,28 @@ class ByteTrackTracker(BaseTracker):
             cancel_event=cancel_event,
             progress_callback=progress_callback,
         )
-        self._high_score_threshold = self.params.high_thresh
-        self._low_score_threshold = self.params.low_thresh
+        self._high_score_threshold = confidence_threshold
+        self._low_score_threshold = low_score_threshold
 
-    def reconfigure(self, params: TrackerParams) -> None:
+    def set_thresholds(
+        self,
+        confidence_threshold: float | None = None,
+        low_score_threshold: float | None = None,
+    ) -> None:
+        """Update detection thresholds at runtime."""
+        if confidence_threshold is not None:
+            self._high_score_threshold = confidence_threshold
+        if low_score_threshold is not None:
+            self._low_score_threshold = low_score_threshold
+
+    def reconfigure(
+        self,
+        params: TrackerParams,
+        confidence_threshold: float | None = None,
+        low_score_threshold: float | None = None,
+    ) -> None:
         super().reconfigure(params)
-        self._high_score_threshold = self.params.high_thresh
-        self._low_score_threshold = self.params.low_thresh
+        self.set_thresholds(confidence_threshold, low_score_threshold)
 
     def _process_frame(
         self,
@@ -42,6 +59,7 @@ class ByteTrackTracker(BaseTracker):
     ) -> list[TrackObservation]:
         self._predict_tracks()
 
+        all_detections: list[Detection] = [*detections, *(low_conf_detections or [])]
         high_pool: list[Detection] = []
         high_indices: list[int] = []
         low_pool: list[Detection] = []
@@ -51,7 +69,7 @@ class ByteTrackTracker(BaseTracker):
             max(0.0, self._low_score_threshold) if self.params.use_low_score_pool else 1.1
         )  # disable low pool
 
-        for idx, det in enumerate(detections):
+        for idx, det in enumerate(all_detections):
             if det.score >= self._high_score_threshold:
                 high_pool.append(det)
                 high_indices.append(idx)
@@ -82,7 +100,7 @@ class ByteTrackTracker(BaseTracker):
 
         for track_idx, det_global_idx in matches:
             track = self._tracks[track_idx]
-            det = detections[det_global_idx]
+            det = all_detections[det_global_idx]
             self._update_track(track, det, frame_idx)
             obs = self._emit_observation(track, frame_idx, matched=True)
             if obs:
@@ -105,7 +123,7 @@ class ByteTrackTracker(BaseTracker):
             if high_indices[idx] not in matched_high_det_indices
         }
         for det_idx in unmatched_high_det_indices:
-            obs = self._start_new_track(detections[det_idx], frame_idx)
+            obs = self._start_new_track(all_detections[det_idx], frame_idx)
             if obs:
                 observations.append(obs)
 

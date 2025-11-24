@@ -28,8 +28,8 @@ type = "gaussian"
 strength = 10
 
 [detection]
-plate_threshold = 0.5
-face_threshold = 0.5
+confidence_threshold = 0.5
+low_score_threshold = 0.1
 batch_size = 4
 use_sahi = true
 inference_size = 1920
@@ -192,49 +192,49 @@ blur-cli image input.jpg --blur-strength 25
 
 ## Detection Configuration
 
-### `detection.plate_threshold`
+### `detection.confidence_threshold`
 **Type:** Float
 **Default:** `0.5`
 **Range:** `0.0-1.0`
 
-Confidence threshold for license plate detection. Lower values detect more plates but may include false positives.
+Global confidence threshold applied to all detector classes.
 
 **TOML:**
 ```toml
 [detection]
-plate_threshold = 0.3
+confidence_threshold = 0.3
 ```
 
 **CLI:**
 ```bash
-blur-cli image input.jpg --plate-threshold 0.3
+blur-cli image input.jpg --confidence-threshold 0.3
 ```
 
 **API:**
 ```json
 {
   "detection": {
-    "plate_threshold": 0.3
+    "confidence_threshold": 0.3
   }
 }
 ```
 
-### `detection.face_threshold`
+### `detection.low_score_threshold`
 **Type:** Float
-**Default:** `0.5`
+**Default:** `0.1`
 **Range:** `0.0-1.0`
 
-Confidence threshold for face detection.
+Minimum score retained before non-max suppression. Detections below this are discarded early; trackers that use low-score pools will also use this cutoff.
 
 **TOML:**
 ```toml
 [detection]
-face_threshold = 0.6
+low_score_threshold = 0.1
 ```
 
 **CLI:**
 ```bash
-blur-cli image input.jpg --face-threshold 0.6
+blur-cli image input.jpg --low-score-threshold 0.1
 ```
 
 ### `detection.batch_size`
@@ -544,19 +544,6 @@ temporal_smooth_alpha = 0.7
 
 Enable low-score detection pool for second-chance matching.
 
-#### `high_thresh`
-**Type:** Float
-**Default:** `0.4`
-**Range:** `0.0-1.0`
-
-High confidence threshold for first-stage matching.
-
-#### `low_thresh`
-**Type:** Float
-**Default:** `0.1`
-**Range:** `0.0-1.0`
-
-Low confidence threshold for second-stage matching.
 
 **Example TOML:**
 ```toml
@@ -565,10 +552,10 @@ type = "bytetrack"
 
 [tracking.params]
 distance_gate = 0.05
-high_thresh = 0.5
-low_thresh = 0.2
 use_low_score_pool = true
 ```
+
+> **Note**: ByteTrack uses `detection.confidence_threshold` and `detection.low_score_threshold` for high/low confidence pools. These are no longer tracker parameters.
 
 ### BotSort-Specific Parameters
 
@@ -606,9 +593,9 @@ cam_motion_comp = true
 flow_backend = "LK"
 distance_gate_hi = 0.05
 distance_gate_lo = 0.02
-high_thresh = 0.4
-low_thresh = 0.1
 ```
+
+> **Note**: BotSort uses `detection.confidence_threshold` and `detection.low_score_threshold`. These are no longer tracker parameters.
 
 ### Hybrid SOT-Specific Parameters
 
@@ -747,8 +734,8 @@ type = "gaussian"
 strength = 15
 
 [detection]
-plate_threshold = 0.4
-face_threshold = 0.4
+confidence_threshold = 0.4
+low_score_threshold = 0.1
 batch_size = 8
 use_sahi = true
 inference_size = 1920
@@ -761,8 +748,6 @@ use_offline_linker = true
 confirm_after_N = 3
 max_misses_M = 8
 cam_motion_comp = true
-high_thresh = 0.5
-low_thresh = 0.2
 
 [video]
 codec = "h264"
@@ -780,8 +765,8 @@ type = "blackout"
 strength = 5
 
 [detection]
-plate_threshold = 0.5
-face_threshold = 0.5
+confidence_threshold = 0.5
+low_score_threshold = 0.1
 batch_size = 16
 use_sahi = false
 inference_size = 640
@@ -806,8 +791,8 @@ type = "gaussian"
 strength = 20
 
 [detection]
-plate_threshold = 0.3
-face_threshold = 0.3
+confidence_threshold = 0.3
+low_score_threshold = 0.1
 batch_size = 4
 use_sahi = true
 inference_size = 3840
@@ -834,8 +819,8 @@ type = "blackout"
 strength = 100
 
 [detection]
-plate_threshold = 0.2  # Low threshold, catch everything
-face_threshold = 0.2
+confidence_threshold = 0.2  # Low threshold, catch everything
+low_score_threshold = 0.1
 batch_size = 4
 use_sahi = true
 inference_size = 2560

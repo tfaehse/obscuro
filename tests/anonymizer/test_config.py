@@ -80,8 +80,8 @@ class TestDetectionConfig:
     def test_detection_config_defaults(self):
         """Test default detection configuration."""
         config = DetectionConfig()
-        assert config.plate_threshold == 0.5
-        assert config.face_threshold == 0.5
+        assert config.confidence_threshold == 0.5
+        assert config.low_score_threshold == 0.1
         assert config.use_sahi is True
         assert config.inference_size == 1920
         assert config.sahi_overlap_ratio == 0.2
@@ -89,9 +89,9 @@ class TestDetectionConfig:
     def test_detection_thresholds_validation(self):
         """Test detection threshold validation."""
         with pytest.raises(ValueError):
-            DetectionConfig(plate_threshold=-0.1)  # Too low
+            DetectionConfig(confidence_threshold=-0.1)  # Too low
         with pytest.raises(ValueError):
-            DetectionConfig(face_threshold=1.1)  # Too high
+            DetectionConfig(confidence_threshold=1.1)  # Too high
 
 
 class TestTrackingConfig:

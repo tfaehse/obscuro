@@ -271,46 +271,32 @@ class TestAnonymizerMethods:
     @patch("anonymizer.core.Detector")
     @patch("anonymizer.core.TrackerFactory")
     @patch("anonymizer.core.Blurrer")
-    def test_update_detection_thresholds_plate_only(
+    def test_update_detection_thresholds_confidence_only(
         self, mock_blurrer, mock_tracker_factory, mock_detector, sample_config
     ):
-        """Test updating plate threshold only."""
+        """Test updating the global detection threshold."""
         anonymizer = Anonymizer(config=sample_config)
-        original_face_threshold = anonymizer.config.detection.face_threshold
 
-        anonymizer.update_detection_thresholds(plate_threshold=0.8)
+        anonymizer.update_detection_thresholds(confidence_threshold=0.8)
 
-        assert anonymizer.config.detection.plate_threshold == 0.8
-        assert anonymizer.config.detection.face_threshold == original_face_threshold
+        assert anonymizer.config.detection.confidence_threshold == 0.8
+        anonymizer.detector.set_thresholds.assert_called_once_with(0.8, None)
+        anonymizer.tracker.set_thresholds.assert_called_once_with(0.8, None)  # type: ignore[attr-defined]
 
     @patch("anonymizer.core.Detector")
     @patch("anonymizer.core.TrackerFactory")
     @patch("anonymizer.core.Blurrer")
-    def test_update_detection_thresholds_face_only(
+    def test_update_detection_thresholds_low_score_only(
         self, mock_blurrer, mock_tracker_factory, mock_detector, sample_config
     ):
-        """Test updating face threshold only."""
-        anonymizer = Anonymizer(config=sample_config)
-        original_plate_threshold = anonymizer.config.detection.plate_threshold
-
-        anonymizer.update_detection_thresholds(face_threshold=0.9)
-
-        assert anonymizer.config.detection.face_threshold == 0.9
-        assert anonymizer.config.detection.plate_threshold == original_plate_threshold
-
-    @patch("anonymizer.core.Detector")
-    @patch("anonymizer.core.TrackerFactory")
-    @patch("anonymizer.core.Blurrer")
-    def test_update_detection_thresholds_both(
-        self, mock_blurrer, mock_tracker_factory, mock_detector, sample_config
-    ):
-        """Test updating both thresholds."""
+        """Test updating the low score threshold."""
         anonymizer = Anonymizer(config=sample_config)
 
-        anonymizer.update_detection_thresholds(plate_threshold=0.8, face_threshold=0.9)
+        anonymizer.update_detection_thresholds(low_score_threshold=0.05)
 
-        assert anonymizer.config.detection.plate_threshold == 0.8
-        assert anonymizer.config.detection.face_threshold == 0.9
+        assert anonymizer.config.detection.low_score_threshold == 0.05
+        anonymizer.detector.set_thresholds.assert_called_once_with(None, 0.05)
+        anonymizer.tracker.set_thresholds.assert_called_once_with(None, 0.05)  # type: ignore[attr-defined]
 
     @patch("anonymizer.core.Detector")
     @patch("anonymizer.core.TrackerFactory")
@@ -650,6 +636,8 @@ class TestAnonymizerVideoProcessing:
         with (
             patch.object(anonymizer, "_detect", return_value=mock_detections),
             patch.object(anonymizer.blurrer, "blur_video", return_value=None),
+            patch("onnxruntime.get_available_providers", return_value=["CPUExecutionProvider"]),
+            patch("onnxruntime.InferenceSession"),
         ):
             anonymizer.blur_video(input_path, output_path)
 
@@ -978,7 +966,7 @@ def test_detection_tracking_blurring_pipeline_blurs_region(tmp_path, monkeypatch
     fake_session.get_inputs.return_value = [SimpleNamespace(name="input", shape=[1, 3, 224, 224])]
     fake_session.run.return_value = []
     monkeypatch.setattr(
-        "anonymizer.detection.ort.InferenceSession",
+        "onnxruntime.InferenceSession",
         lambda *args, **kwargs: fake_session,
     )
 

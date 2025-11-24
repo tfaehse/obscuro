@@ -75,10 +75,10 @@ def _build_detector_with_session(session_output=None, *, use_sahi: bool = False)
 
     with (
         patch(
-            "anonymizer.detection.ort.get_available_providers",
+            "onnxruntime.get_available_providers",
             return_value=["CPUExecutionProvider"],
         ),
-        patch("anonymizer.detection.ort.InferenceSession") as mock_session,
+        patch("onnxruntime.InferenceSession") as mock_session,
         patch("pathlib.Path.exists", return_value=True),
     ):
         fake_session = Mock()

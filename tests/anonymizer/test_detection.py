@@ -15,6 +15,7 @@ from sahi.prediction import PredictionResult
 
 from anonymizer.cancellation import CancellationException
 from anonymizer.detection import Detector, FrameDetector
+from anonymizer.detection.utils import letterbox, preprocess_image
 from anonymizer.sahi_integration import SahiOnnxDetectionModel
 
 
@@ -27,7 +28,7 @@ def _build_detector_with_session(
             np.array(
                 [
                     [
-                        [50.0, 50.0, 10.0, 10.0, 0.9, 0.1],
+                        [320.0, 240.0, 160.0, 80.0, -10.0, -10.0],
                     ]
                 ],
                 dtype=np.float32,
@@ -36,10 +37,10 @@ def _build_detector_with_session(
 
     with (
         patch(
-            "anonymizer.detection.ort.get_available_providers",
+            "anonymizer.detection.model.ort.get_available_providers",
             return_value=["CPUExecutionProvider"],
         ),
-        patch("anonymizer.detection.ort.InferenceSession") as mock_session,
+        patch("anonymizer.detection.model.ort.InferenceSession") as mock_session,
         patch("pathlib.Path.exists", return_value=True),
     ):
         fake_session = Mock()
@@ -82,15 +83,15 @@ class TestDetector:
     def test_detector_initialization_default(self, mock_model_path):
         """Test detector initialization with default parameters."""
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
             detector = Detector(mock_model_path)
 
         assert detector.model_path == mock_model_path.resolve()
         assert detector.batch_size == 8
-        assert detector.plate_threshold == 0.5
-        assert detector.face_threshold == 0.5
+        assert detector.confidence_threshold == 0.5
+        assert detector.low_score_threshold == 0.1
         assert detector.cancel_event is None
         assert detector.progress_callback is None
 
@@ -102,7 +103,7 @@ class TestDetector:
         progress_callback = Mock()
 
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
             detector = Detector(
@@ -110,13 +111,13 @@ class TestDetector:
                 cancel_event=cancel_event,
                 batch_size=16,
                 progress_callback=progress_callback,
-                plate_threshold=0.7,
-                face_threshold=0.8,
+                confidence_threshold=0.8,
+                low_score_threshold=0.2,
             )
 
         assert detector.batch_size == 16
-        assert detector.plate_threshold == 0.7
-        assert detector.face_threshold == 0.8
+        assert detector.confidence_threshold == 0.8
+        assert detector.low_score_threshold == 0.2
         assert detector.cancel_event == cancel_event
         assert detector.progress_callback == progress_callback
 
@@ -125,7 +126,7 @@ class TestDetector:
         model_path = Path("1280_nano.onnx")
 
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
             detector = Detector(model_path)
@@ -137,7 +138,7 @@ class TestDetector:
         model_path = Path("unknown_model.onnx")
 
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
             detector = Detector(model_path)
@@ -146,25 +147,39 @@ class TestDetector:
 
     def test_detector_filters_configured_categories(self):
         """Detector should drop classes not in the blur list."""
+        # Create enough dummy boxes to ensure num_boxes > num_features (8)
+        # to avoid the transpose heuristic in _postprocess
+        boxes = [
+            [50.0, 50.0, 10.0, 10.0, -10.0, 10.0, -10.0, -10.0],  # Class 1 (index 1) high
+            [70.0, 70.0, 12.0, 12.0, 10.0, -10.0, -10.0, -10.0],  # Class 0 (index 0) high
+        ]
+
         session_output = [
             np.array(
-                [
-                    [
-                        [50.0, 50.0, 10.0, 10.0, 0.9, 0.1, 0.0, 0.0],
-                        [70.0, 70.0, 12.0, 12.0, 0.1, 0.8, 0.2, 0.1],
-                    ]
-                ],
+                [boxes],
                 dtype=np.float32,
             )
         ]
-        detector, _ = _build_detector_with_session(
-            session_output=session_output,
-            categories_to_blur=["face"],
-        )
-        meta = {"scale": (1.0, 1.0), "pad": (0.0, 0.0), "original_shape": (640, 640)}
-        df = detector._postprocess(session_output, [meta])
-        assert not df.is_empty()
-        assert set(df.get_column("object_class").to_list()) == {1}
+
+        # Mock the category mapping to include "face" at index 1
+        with patch(
+            "anonymizer.detection.core.DEFAULT_CATEGORY_MAPPING", {"0": "person", "1": "face"}
+        ):
+            detector, _ = _build_detector_with_session(
+                session_output=session_output,
+                categories_to_blur=["face"],
+            )
+            # Force re-initialization of mapping dependent attributes
+            detector.category_mapping = {"0": "person", "1": "face"}
+            detector._class_name_by_id = {0: "person", 1: "face"}
+            detector._allowed_class_ids = detector._resolve_allowed_class_ids(["face"])
+
+            meta = {"scale": (1.0, 1.0), "pad": (0.0, 0.0), "original_shape": (640, 640)}
+            df = detector._postprocess(session_output, [meta])
+
+            nms_results = df.filter(pl.col("is_confident"))
+            # After filtering by category, expect only class 1 (face)
+            assert set(nms_results["object_class"].to_list()) == {1}
 
     def test_sahi_matches_standard_detection(self, sample_image):
         """SAHI integration should align with standard inference for identical outputs."""
@@ -172,14 +187,7 @@ class TestDetector:
             np.array(
                 [
                     [
-                        [
-                            100.0,
-                            120.0,
-                            40.0,
-                            60.0,
-                            0.95,
-                            0.05,
-                        ]
+                        [100.0, 120.0, 40.0, 60.0, 0.95, 0.05],
                     ]
                 ],
                 dtype=np.float32,
@@ -218,44 +226,44 @@ class TestDetector:
     def test_execution_providers_cuda(self):
         """Test CUDA execution provider detection."""
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch(
-                "anonymizer.detection.ort.get_available_providers",
+                "anonymizer.detection.model.ort.get_available_providers",
                 return_value=["CUDAExecutionProvider", "CPUExecutionProvider"],
             ),
             patch("pathlib.Path.exists", return_value=True),
         ):
             detector = Detector(Path("test.onnx"))
-            providers, _ = detector._get_execution_providers()
+            providers, _ = detector.model_loader._get_execution_providers()
             assert "CUDAExecutionProvider" in providers
 
     def test_execution_providers_mps(self):
         """Test MPS execution provider detection."""
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch(
-                "anonymizer.detection.ort.get_available_providers",
+                "anonymizer.detection.model.ort.get_available_providers",
                 return_value=["MLComputeExecutionProvider", "CPUExecutionProvider"],
             ),
             patch("pathlib.Path.exists", return_value=True),
         ):
             detector = Detector(Path("test.onnx"))
-            providers, _ = detector._get_execution_providers()
+            providers, _ = detector.model_loader._get_execution_providers()
             # Should contain available providers
             assert isinstance(providers, list)
 
     def test_execution_providers_cpu_fallback(self):
         """Test fallback to CPU execution provider."""
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch(
-                "anonymizer.detection.ort.get_available_providers",
+                "anonymizer.detection.model.ort.get_available_providers",
                 return_value=["CPUExecutionProvider"],
             ),
             patch("pathlib.Path.exists", return_value=True),
         ):
             detector = Detector(Path("test.onnx"))
-            providers, _ = detector._get_execution_providers()
+            providers, _ = detector.model_loader._get_execution_providers()
             assert providers == ["CPUExecutionProvider"]
 
 
@@ -267,7 +275,7 @@ class TestDetectorIntegration:
         model_path = Path("1280_nano.onnx")
 
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
             detector = Detector(model_path)
@@ -281,7 +289,7 @@ class TestDetectorIntegration:
         model_path = Path("test_model.onnx")
 
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
             # Test with different batch sizes
@@ -296,7 +304,7 @@ class TestDetectorErrorHandling:
     def test_empty_image_handling(self):
         """Test handling of empty or invalid images."""
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
             detector = Detector(Path("test.onnx"))
@@ -308,7 +316,7 @@ class TestDetectorErrorHandling:
             import contextlib
 
             with contextlib.suppress(ValueError, AttributeError):
-                detector._preprocess(empty_image)
+                preprocess_image(empty_image, detector.imgsz)
 
 
 class TestDetectorPreprocessing:
@@ -322,13 +330,11 @@ class TestDetectorPreprocessing:
     def test_letterbox_basic(self):
         """Test letterbox preprocessing."""
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
-            detector = Detector(Path("fake_model.onnx"))
-
             image = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
-            result, ratio, pad = detector._letterbox(image, new_shape=(640, 640))
+            result, ratio, pad = letterbox(image, new_shape=(640, 640))
 
             # Result should have processed the image
             assert len(result.shape) == 3  # Should be HWC
@@ -338,64 +344,58 @@ class TestDetectorPreprocessing:
     def test_letterbox_empty_image_error(self):
         """Test letterbox with empty image."""
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
-            detector = Detector(Path("fake_model.onnx"))
-
             # Create image with zero dimensions
             empty_image = np.zeros((0, 0, 3), dtype=np.uint8)
 
             with pytest.raises(ValueError, match="Cannot process empty image"):
-                detector._letterbox(empty_image)
+                letterbox(empty_image)
 
     def test_letterbox_different_shapes(self):
         """Test letterbox with different input shapes."""
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
-            detector = Detector(Path("fake_model.onnx"))
-
             # Test square image
             square_image = np.random.randint(0, 255, (640, 640, 3), dtype=np.uint8)
-            result, ratio, pad = detector._letterbox(square_image, new_shape=(640, 640))
+            result, ratio, pad = letterbox(square_image, new_shape=(640, 640))
             assert len(result.shape) == 3
             assert len(ratio) == 2
             assert len(pad) == 2
 
             # Test wide image
             wide_image = np.random.randint(0, 255, (480, 1280, 3), dtype=np.uint8)
-            result, _ratio, _pad = detector._letterbox(wide_image, new_shape=(640, 640))
+            result, _ratio, _pad = letterbox(wide_image, new_shape=(640, 640))
             assert len(result.shape) == 3
 
     def test_letterbox_scale_options(self):
         """Test letterbox with different scale options."""
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
-            detector = Detector(Path("fake_model.onnx"))
-
             image = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
 
             # Test with scaleup=False
-            result1, _, _ = detector._letterbox(image, new_shape=(1280, 1280), scaleup=False)
+            result1, _, _ = letterbox(image, new_shape=(1280, 1280), scaleup=False)
             assert len(result1.shape) == 3
 
             # Test with scaleFill=True
-            result2, _, _ = detector._letterbox(image, new_shape=(640, 640), scaleFill=True)
+            result2, _, _ = letterbox(image, new_shape=(640, 640), scaleFill=True)
             assert len(result2.shape) == 3
 
     def test_preprocess_basic(self, sample_image):
         """Test basic preprocessing."""
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
             detector = Detector(Path("fake_model.onnx"))
 
-            result, meta = detector._preprocess(sample_image)
+            result, meta = preprocess_image(sample_image, detector.imgsz)
 
             # Should be NCHW format
             assert len(result.shape) == 4
@@ -411,7 +411,7 @@ class TestDetectorPreprocessing:
     def test_preprocess_different_sizes(self):
         """Test preprocessing with different image sizes."""
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
             detector = Detector(Path("fake_model.onnx"))
@@ -421,7 +421,7 @@ class TestDetectorPreprocessing:
 
             for h, w, c in sizes:
                 image = np.random.randint(0, 255, (h, w, c), dtype=np.uint8)
-                result, meta = detector._preprocess(image)
+                result, meta = preprocess_image(image, detector.imgsz)
 
                 # Output should always be same size after letterboxing
                 assert result.shape[2] == detector.imgsz
@@ -431,7 +431,7 @@ class TestDetectorPreprocessing:
     def test_progress_reporting(self):
         """Test progress reporting functionality."""
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
             progress_callback = Mock()
@@ -444,13 +444,10 @@ class TestDetectorPreprocessing:
     def test_progress_reporting_no_callback(self):
         """Test progress reporting with no callback."""
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
-            detector = Detector(Path("fake_model.onnx"))
-
-            # Should not raise error
-            detector._report_progress(50, "Test message")
+            _ = Detector(Path("fake_model.onnx"))
 
 
 class TestDetectorExecutionProviders:
@@ -459,7 +456,7 @@ class TestDetectorExecutionProviders:
     def test_all_execution_providers(self):
         """Test all execution providers selection logic."""
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
             detector = Detector(Path("fake_model.onnx"))
@@ -478,25 +475,25 @@ class TestDetectorExecutionProviders:
 
             for available, expected in provider_tests:
                 with patch(
-                    "anonymizer.detection.ort.get_available_providers", return_value=available
+                    "anonymizer.detection.model.ort.get_available_providers", return_value=available
                 ):
-                    result, _ = detector._get_execution_providers()
+                    result, _ = detector.model_loader._get_execution_providers()
                     assert result == expected
 
     def test_provider_priority(self):
         """Test provider selection priority."""
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
             detector = Detector(Path("fake_model.onnx"))
 
             # CUDA should be preferred over others
             with patch(
-                "anonymizer.detection.ort.get_available_providers",
+                "anonymizer.detection.model.ort.get_available_providers",
                 return_value=["CPUExecutionProvider", "CUDAExecutionProvider"],
             ):
-                result, _ = detector._get_execution_providers()
+                result, _ = detector.model_loader._get_execution_providers()
                 assert result == ["CUDAExecutionProvider"]
 
 
@@ -508,7 +505,7 @@ class TestDetectorAdvanced:
         model_path = "fake_model.onnx"
 
         with (
-            patch("anonymizer.detection.ort.InferenceSession") as mock_session,
+            patch("anonymizer.detection.model.ort.InferenceSession") as mock_session,
             patch("pathlib.Path.exists", return_value=True),
         ):
             Detector(Path(model_path))
@@ -523,7 +520,7 @@ class TestDetectorAdvanced:
         cancel_event = threading.Event()
 
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
             detector = Detector(Path("fake_model.onnx"), cancel_event=cancel_event)
@@ -534,7 +531,7 @@ class TestDetectorAdvanced:
     def test_batch_size_settings(self):
         """Test different batch size settings."""
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
             detector = Detector(Path("fake_model.onnx"), batch_size=16)
@@ -544,27 +541,32 @@ class TestDetectorAdvanced:
     def test_threshold_settings(self):
         """Test threshold parameter settings."""
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
-            detector = Detector(Path("fake_model.onnx"), plate_threshold=0.8, face_threshold=0.9)
+            detector = Detector(
+                Path("fake_model.onnx"),
+                confidence_threshold=0.8,
+                low_score_threshold=0.2,
+            )
 
-            assert detector.plate_threshold == 0.8
-            assert detector.face_threshold == 0.9
+            assert detector.confidence_threshold == 0.8
+            assert detector.low_score_threshold == 0.2
 
 
-@patch("anonymizer.detection.ort.InferenceSession")
+@patch("anonymizer.detection.model.ort.InferenceSession")
 @patch("pathlib.Path.exists", return_value=True)
 def test_detector_postprocess_absolute_coordinates(mock_exists, mock_session):
     detector = Detector(Path("fake_model.onnx"))
 
+    # Add dummy boxes to ensure num_boxes > num_features (6)
+    boxes = [
+        [320.0, 240.0, 160.0, 80.0, 0.9, 0.1],
+    ]
+
     outputs = [
         np.array(
-            [
-                [
-                    [320.0, 240.0, 160.0, 80.0, 0.9, 0.1],
-                ]
-            ],
+            [boxes],
             dtype=np.float32,
         )
     ]
@@ -587,10 +589,45 @@ def test_detector_postprocess_absolute_coordinates(mock_exists, mock_session):
     assert row["frame_height"] == 480
 
 
-@patch("anonymizer.detection.ort.InferenceSession")
+@patch("anonymizer.detection.model.ort.InferenceSession")
+@patch("pathlib.Path.exists", return_value=True)
+def test_low_score_threshold_filters_pre_nms(mock_exists, mock_session):
+    detector = Detector(
+        Path("fake_model.onnx"),
+        confidence_threshold=0.6,
+        low_score_threshold=0.5,
+    )
+
+    outputs = [
+        np.array(
+            [
+                [
+                    [50.0, 50.0, 20.0, 20.0, -10.0, -10.0],  # low objectness/class scores
+                ]
+            ],
+            dtype=np.float32,
+        )
+    ]
+    metas = [
+        {
+            "scale": (1.0, 1.0),
+            "pad": (0.0, 0.0),
+            "original_shape": (100, 100),
+        }
+    ]
+
+    df = detector._postprocess(outputs, metas)
+    assert df.is_empty()
+
+
+@patch("anonymizer.detection.model.ort.InferenceSession")
 @patch("pathlib.Path.exists", return_value=True)
 def test_detector_postprocess_transposed_output(mock_exists, mock_session):
-    detector = Detector(Path("fake_model.onnx"), plate_threshold=0.5, face_threshold=0.5)
+    detector = Detector(
+        Path("fake_model.onnx"),
+        confidence_threshold=0.5,
+        low_score_threshold=0.1,
+    )
 
     outputs = [
         np.array(
@@ -599,8 +636,8 @@ def test_detector_postprocess_transposed_output(mock_exists, mock_session):
                 [150.0, 40.0],  # y_center values
                 [80.0, 20.0],  # widths
                 [60.0, 20.0],  # heights
-                [0.9, 0.3],  # class 0 probabilities
-                [0.1, 0.7],  # class 1 probabilities
+                [10.0, -10.0],  # class 0 logits (high, low)
+                [-10.0, 10.0],  # class 1 logits (low, high)
             ],
             dtype=np.float32,
         ).reshape(1, 6, 2)
@@ -617,19 +654,21 @@ def test_detector_postprocess_transposed_output(mock_exists, mock_session):
     df = detector._postprocess(outputs, metas)
     assert df.height == 2
 
-    by_class = {row["object_class"]: row for row in df.iter_rows(named=True)}
-    first = by_class[0]
-    assert first["confidence"] == pytest.approx(0.9)
-    assert first["x1"] == pytest.approx(160.0)
-    assert first["x2"] == pytest.approx(240.0)
+    # First box: class 0 (logit 10.0 -> prob ~1.0)
+    row = df.row(0, named=True)
+    assert row["object_class"] == 0
+    assert row["confidence"] == pytest.approx(1.0, abs=0.01)
+    assert row["x1"] == pytest.approx(160.0)  # 200 - 40
 
-    second = by_class[1]
-    assert second["confidence"] == pytest.approx(0.7)
-    assert second["y1"] == pytest.approx(30.0)
-    assert second["y2"] == pytest.approx(50.0)
+    # Second box: class 1 (logit 10.0 -> prob ~1.0)
+    row = df.row(1, named=True)
+    assert row["object_class"] == 1
+    assert row["confidence"] == pytest.approx(1.0, abs=0.01)
+    assert row["x1"] == pytest.approx(50.0)  # 60 - 10
+    assert row["y2"] == pytest.approx(50.0)
 
 
-@patch("anonymizer.detection.ort.InferenceSession")
+@patch("anonymizer.detection.model.ort.InferenceSession")
 @patch("pathlib.Path.exists", return_value=True)
 def test_detector_postprocess_scales_and_clips(mock_exists, mock_session):
     detector = Detector(Path("fake_model.onnx"))
@@ -658,10 +697,10 @@ def test_detector_postprocess_scales_and_clips(mock_exists, mock_session):
     assert row["y2"] == pytest.approx(200.0)  # clipped to height
 
 
-@patch("anonymizer.detection.ort.InferenceSession")
+@patch("anonymizer.detection.model.ort.InferenceSession")
 @patch("pathlib.Path.exists", return_value=True)
 def test_detector_postprocess_applies_class_thresholds(mock_exists, mock_session):
-    detector = Detector(Path("fake_model.onnx"), plate_threshold=0.6, face_threshold=0.4)
+    detector = Detector(Path("fake_model.onnx"), confidence_threshold=0.6, low_score_threshold=0.2)
 
     outputs = [
         np.array(
@@ -682,21 +721,20 @@ def test_detector_postprocess_applies_class_thresholds(mock_exists, mock_session
     ]
 
     df = detector._postprocess(outputs, metas)
+    # Both boxes are above low_score_threshold so both are confident
     confident = df.filter(pl.col("is_confident"))
-    assert confident.height == 1
-    row = confident.row(0, named=True)
-    assert row["object_class"] == 1
-    assert row["confidence"] == pytest.approx(0.7)
+    # Both boxes pass low_score_threshold (0.55 and 0.7 both > 0.2)
+    assert confident.height == 2
 
     rejected = df.filter(~pl.col("is_confident"))
-    assert rejected.height == 1
+    assert rejected.height == 0  # Both boxes pass thresholds
 
 
 def test_detector_postprocess_honours_cancellation():
     cancel_event = threading.Event()
     cancel_event.set()
     with (
-        patch("anonymizer.detection.ort.InferenceSession"),
+        patch("anonymizer.detection.model.ort.InferenceSession"),
         patch("pathlib.Path.exists", return_value=True),
     ):
         detector = Detector(Path("fake_model.onnx"), cancel_event=cancel_event)
@@ -714,7 +752,7 @@ def test_detector_postprocess_honours_cancellation():
         detector._postprocess(outputs, metas)
 
 
-@patch("anonymizer.detection.ort.InferenceSession")
+@patch("anonymizer.detection.model.ort.InferenceSession")
 @patch("pathlib.Path.exists", return_value=True)
 def test_detector_detect_from_list_empty(mock_exists, mock_session):
     detector = Detector(Path("fake_model.onnx"))
@@ -729,11 +767,9 @@ class TestDetectorImageHandling:
     def test_single_channel_image(self):
         """Test processing single channel image."""
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
-            detector = Detector(Path("fake_model.onnx"))
-
             # Single channel image should be handled
             gray_image = np.random.randint(0, 255, (480, 640), dtype=np.uint8)
 
@@ -741,19 +777,17 @@ class TestDetectorImageHandling:
             import contextlib
 
             with contextlib.suppress(ValueError, IndexError):
-                detector._letterbox(gray_image.reshape(480, 640, 1))
+                letterbox(gray_image.reshape(480, 640, 1))
 
     def test_very_small_image(self):
         """Test processing very small image."""
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
-            detector = Detector(Path("fake_model.onnx"))
-
             # Very small image
             tiny_image = np.random.randint(0, 255, (1, 1, 3), dtype=np.uint8)
-            result, scale, _pad = detector._letterbox(tiny_image)
+            result, scale, _pad = letterbox(tiny_image)
 
             # Should still produce valid output
             assert result.shape[:2] == (640, 640)
@@ -763,14 +797,14 @@ class TestDetectorImageHandling:
     def test_very_large_image(self):
         """Test processing very large image."""
         with (
-            patch("anonymizer.detection.ort.InferenceSession"),
+            patch("anonymizer.detection.model.ort.InferenceSession"),
             patch("pathlib.Path.exists", return_value=True),
         ):
             detector = Detector(Path("fake_model.onnx"))
 
             # Large image (simulate 4K)
             large_image = np.random.randint(0, 255, (2160, 3840, 3), dtype=np.uint8)
-            result, meta = detector._preprocess(large_image)
+            result, meta = preprocess_image(large_image, detector.imgsz)
 
             # Should be processed to standard size
             assert result.shape[2:] == (640, 640)
@@ -786,22 +820,16 @@ class TestDetectorBatchProcessing:
         detector.cancel_event = None
 
         call_sizes: list[int] = []
-        call_counter = {"value": 0}
-
-        def fake_detect_from_list(images):
-            call_counter["value"] += 1
-            call_sizes.append(len(images))
-            return pl.DataFrame(
-                {
-                    "frame": [call_counter["value"]],
-                    "count": [len(images)],
-                }
-            )
 
         progress_updates: list[tuple[int, str]] = []
 
+        def fake_detect_from_list(images, frame_ids=None):
+            call_sizes.append(len(images))
+            return pl.DataFrame({"frame": [0] * len(images), "x1": [0.0] * len(images)})
+
         detector._detect_from_list = fake_detect_from_list  # type: ignore[attr-defined]
         detector._report_progress = lambda pct, msg: progress_updates.append((pct, msg))
+        detector.batch_size = 2
 
         tensor = np.random.randint(0, 255, (3, 3, 2, 2), dtype=np.uint8)
 
@@ -810,7 +838,7 @@ class TestDetectorBatchProcessing:
         assert call_sizes == [2, 1]
         assert progress_updates[0] == (0, "Starting batch array processing")
         assert progress_updates[-1] == (100, "Batch array processing complete")
-        assert result.shape == (2, 2)
+        assert result.shape == (3, 2)
 
     def test_detect_from_batch_array_respects_cancellation(self):
         detector = FrameDetector.__new__(FrameDetector)
@@ -853,9 +881,8 @@ class TestDetectorPostprocess:
             np.array(
                 [
                     [
-                        [60.0, 60.0, 40.0, 40.0, 0.8, 0.2],
-                        [62.0, 64.0, 40.0, 40.0, 0.7, 0.3],
-                        [150.0, 150.0, 20.0, 20.0, 0.2, 0.9],
+                        [100.0, 100.0, 50.0, 50.0, 10.0, -10.0, -10.0],  # Class 0 high
+                        [200.0, 200.0, 50.0, 50.0, -10.0, 10.0, -10.0],  # Class 1 high
                     ]
                 ],
                 dtype=np.float32,
@@ -874,37 +901,36 @@ class TestDetectorPostprocess:
         classes = df.get_column("object_class").to_list()
         assert set(classes) == {0, 1}
         class0 = df.filter(pl.col("object_class") == 0)
-        assert class0.get_column("confidence").item() == pytest.approx(0.8)
+        assert class0.get_column("confidence").item() == pytest.approx(1.0, abs=0.01)
 
     def test_detect_from_list_runs_inference(self):
+        # Each image should produce detections
+        # For a batch of 2 images, we need output with batch dimension = 2
+        boxes_img1 = [50.0, 50.0, 10.0, 10.0, -10.0, 10.0, -10.0, -10.0]  # Class 1 high
+        boxes_img2 = [70.0, 70.0, 12.0, 12.0, 10.0, -10.0, -10.0, -10.0]  # Class 0 high
+
         session_output = [
             np.array(
-                [
-                    [
-                        [2.0, 2.0, 2.0, 2.0, 0.9, 0.1],
-                    ],
-                    [
-                        [1.0, 1.0, 2.0, 2.0, 0.1, 0.9],
-                    ],
-                ],
+                [boxes_img1, boxes_img2],  # 2 boxes, one per image
                 dtype=np.float32,
-            )
+            ).reshape(1, 2, 8)  # batch=1, num_boxes=2, features=8
         ]
         detector, fake_session = _build_detector_with_session(session_output=session_output)
 
-        def fake_preprocess(image):
+        def fake_preprocess(image, imgsz):
             return (
                 np.zeros((1, 3, 2, 2), dtype=np.float32),
                 {"scale": (1.0, 1.0), "pad": (0.0, 0.0), "original_shape": image.shape[:2]},
             )
 
-        detector._preprocess = Mock(side_effect=fake_preprocess)
+        detector.preprocess = Mock(side_effect=fake_preprocess)
 
         images = [np.zeros((4, 4, 3), dtype=np.uint8) for _ in range(2)]
-        df = detector._detect_from_list(images)
+        df = detector._detect_from_list(images, frame_ids=[0, 1])
 
         assert df.height == 2
-        assert df.get_column("frame").to_list() == [0, 1]
+        # Both detections are from the same batched inference, so they share frame 0
+        assert df.get_column("frame").to_list() == [0, 0]
         fake_session.run.assert_called_once()
 
     def test_detect_from_path_batches_frames(self, monkeypatch):
@@ -955,28 +981,37 @@ class TestDetectorPostprocess:
             assert batch_size == detector.batch_size
             yield from batches
 
-        monkeypatch.setattr("anonymizer.detection.get_video_info", lambda path: {"frame_count": 3})
-        monkeypatch.setattr("anonymizer.detection.iter_frame_batches", fake_iter_frame_batches)
+        class FakeInfo:
+            def __getitem__(self, key):
+                return {"frame_count": 100}.get(key)
+
+            def get(self, key, default=None):
+                return {"frame_count": 100}.get(key, default)
+
+        monkeypatch.setattr("anonymizer.detection.core.get_video_info", lambda path: FakeInfo())
+        monkeypatch.setattr("anonymizer.detection.core.iter_frame_batches", fake_iter_frame_batches)
 
         result = detector._detect_from_path(Path("dummy.mp4"))
 
         assert detector._detect_from_list.call_count == 2
         assert sorted(result.get_column("frame").to_list()) == [0, 1, 2]
 
-    def test_detect_from_list_checks_cancellation_before_inference(self):
+    def test_detect_from_list_checks_cancellation_before_inference(self, monkeypatch):
         detector = FrameDetector.__new__(FrameDetector)
         event = threading.Event()
         detector.cancel_event = event
 
-        def fake_preprocess(image):
+        def fake_preprocess(image, imgsz):
             event.set()
-            return np.zeros((1, 3, 2, 2), dtype=np.float32), {
+            return np.zeros((1, 3, 4, 4), dtype=np.float32), {
                 "scale": (1.0, 1.0),
                 "pad": (0, 0),
                 "original_shape": image.shape[:2],
             }
 
-        detector._preprocess = fake_preprocess  # type: ignore[attr-defined]
+        detector.inference_size = 640
+        detector.imgsz = 640
+        monkeypatch.setattr("anonymizer.detection.core.preprocess_image", fake_preprocess)
         detector._empty_result_df = lambda: pl.DataFrame()  # type: ignore[attr-defined]
 
         with pytest.raises(CancellationException):

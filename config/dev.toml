@@ -10,8 +10,8 @@ strength = 10
 type = "gaussian"
 
 [detection]
-face_threshold = 0.4
-plate_threshold = 0.4  # Lower threshold for development
+confidence_threshold = 0.4
+low_score_threshold = 0.1  # Lower threshold for development
 
 [model]
 # Use the bundled default model or point to a custom checkpoint.

@@ -164,18 +164,10 @@ class Blurrer:
                 )
                 mask_count = len(mask_list)
                 box_count = len(rows_without_mask)
-                if mask_list:
-                    frame = self._apply_masks_to_frame(frame, mask_list)
-                if rows_without_mask:
-                    boxes = _rows_to_boxes(rows_without_mask)
-                    absolute_rois = self._ensure_absolute_rois(boxes, frame.shape)
-                    if absolute_rois:
-                        frame = blur_rois(
-                            frame,
-                            absolute_rois,
-                            blur_type=self.blur_type,
-                            blur_strength=self.blur_strength,
-                        )
+                final_mask = self._build_frame_mask(frame.shape, mask_list, rows_without_mask)
+                if np.any(final_mask):
+                    blurred_full = self._apply_blur_to_roi(frame.copy())
+                    frame[final_mask] = blurred_full[final_mask]
             duration_ms = (time.perf_counter() - frame_start) * 1000.0
             self.logger.debug(
                 "Processed frame %d in %.2f ms (mask_rows=%d, box_rows=%d)",
@@ -265,17 +257,41 @@ class Blurrer:
         tracks: Sequence[dict[str, Any]] | None,
         detections: Sequence[dict[str, Any]] | None,
     ) -> None:
+        # Draw detections (red) with masks if available
         if detections:
-            for det in detections:
+            det_masks: list[MaskRegion | None] = []
+            if self.mask_decoder:
+                with contextlib.suppress(Exception):
+                    det_masks = self.mask_decoder.decode_masks_for_rows(detections, frame.shape[:2])
+            for idx, det in enumerate(detections):
                 if not bool(det.get("is_confident", True)):
                     continue
+                if det_masks and idx < len(det_masks):
+                    self._draw_mask(frame, det_masks[idx], (0, 0, 255))
+                else:
+                    mask_region = self._decode_mask_payload(
+                        det.get("mask"), frame.shape, det, frame_num=int(det.get("frame", 0))
+                    )
+                    self._draw_mask(frame, mask_region, (0, 0, 255))
                 score = det.get("confidence")
                 label = None
                 if isinstance(score, int | float):
                     label = f"{score:.2f}"
                 self._draw_box(frame, det, (0, 0, 255), label=label)
+        # Draw tracks (blue) with masks if available
         if tracks:
-            for track in tracks:
+            track_masks: list[MaskRegion | None] = []
+            if self.mask_decoder:
+                with contextlib.suppress(Exception):
+                    track_masks = self.mask_decoder.decode_masks_for_rows(tracks, frame.shape[:2])
+            for idx, track in enumerate(tracks):
+                if track_masks and idx < len(track_masks):
+                    self._draw_mask(frame, track_masks[idx], (255, 0, 0))
+                else:
+                    mask_region = self._decode_mask_payload(
+                        track.get("mask"), frame.shape, track, frame_num=int(track.get("frame", 0))
+                    )
+                    self._draw_mask(frame, mask_region, (255, 0, 0))
                 label_value = track.get("track_id")
                 label = str(label_value) if label_value is not None else None
                 raw_color = track.get("debug_color")
@@ -338,46 +354,51 @@ class Blurrer:
                 lineType=cv2.LINE_8,
             )
 
+    def _draw_mask(
+        self, frame: np.ndarray, mask_region: MaskRegion | None, color: tuple[int, int, int]
+    ) -> None:
+        region = self._normalize_mask_region(mask_region)
+        if region is None:
+            return
+        mask = np.asarray(region["mask"], dtype=np.uint8)
+        if mask.ndim != 2 or mask.size == 0:
+            return
+        y1 = int(region["y1"])
+        x1 = int(region["x1"])
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return
+        for contour in contours:
+            contour[:, 0, 0] += x1
+            contour[:, 0, 1] += y1
+        cv2.drawContours(frame, contours, -1, color, thickness=2, lineType=cv2.LINE_8)
+
     def _split_mask_rows(
         self,
         rows: Sequence[dict[str, Any]],
         frame_shape: tuple[int, ...],
         frame_num: int,
-    ) -> tuple[list[MaskRegion], list[dict[str, Any]]]:
-        masks: list[MaskRegion] = []
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """
+        Categorize rows into those with mask data and those without.
+
+        Returns row dictionaries with mask payloads. Actual mask decoding
+        is deferred to _build_frame_mask for lazy evaluation.
+        """
+        with_mask_data: list[dict[str, Any]] = []
         without_mask: list[dict[str, Any]] = []
-        decoded_masks: list[MaskRegion | None] = [None] * len(rows)
 
-        if self.mask_decoder:
-            decode_start = time.perf_counter()
-            try:
-                decoded_masks = self.mask_decoder.decode_masks_for_rows(
-                    rows, (frame_shape[0], frame_shape[1])
-                )
-            except Exception:
-                decoded_masks = [None] * len(rows)
-            finally:
-                duration_ms = (time.perf_counter() - decode_start) * 1000.0
-                self.logger.debug(
-                    "Decoded %d coeff masks for frame %d in %.2f ms",
-                    len(rows),
-                    frame_num,
-                    duration_ms,
-                )
+        for row in rows:
+            payload = row.get("mask")
+            # Check if there's mask data to decode (either mask ID or dict payload)
+            has_mask_data = payload is not None and isinstance(payload, int | dict)
 
-        for idx, row in enumerate(rows):
-            decoded = None
-            if idx < len(decoded_masks):
-                decoded = self._normalize_mask_region(decoded_masks[idx])
-            mask = decoded or self._decode_mask_payload(
-                row.get("mask"), frame_shape, row, frame_num
-            )
-            if mask is not None:
-                masks.append(mask)
+            if has_mask_data:
+                with_mask_data.append(row)
             else:
                 without_mask.append(row)
 
-        return masks, without_mask
+        return with_mask_data, without_mask
 
     def _decode_mask_payload(
         self,
@@ -391,7 +412,12 @@ class Blurrer:
         height, width = frame_shape[:2]
         if height <= 0 or width <= 0:
             return None
-
+        if isinstance(payload, int) and self.mask_decoder:
+            with contextlib.suppress(Exception):
+                decoded = self.mask_decoder.decode_mask_from_payload(
+                    payload, row or {}, frame_shape[:2]
+                )
+                return self._normalize_mask_region(decoded)
         if isinstance(payload, dict):
             fmt = str(payload.get("format", "")).lower()
             if fmt == "relative_polygon":
@@ -417,7 +443,7 @@ class Blurrer:
         y1 = value.get("y1")
         if mask is None or x1 is None or y1 is None:
             return None
-        mask_arr = np.asarray(mask, dtype=bool, copy=False)
+        mask_arr = np.asarray(mask, dtype=bool)
         if mask_arr.ndim != 2 or mask_arr.size == 0 or not np.any(mask_arr):
             return None
         try:
@@ -461,7 +487,7 @@ class Blurrer:
         cv2.fillPoly(mask, [shifted.astype(np.int32)], 1)
         if not np.any(mask):
             return None
-        return {"mask": mask.astype(bool, copy=False), "x1": x_min, "y1": y_min}
+        return {"mask": mask.astype(bool), "x1": x_min, "y1": y_min}
 
     def _mask_region_from_binary(
         self, payload: dict[str, Any], frame_shape: tuple[int, ...]
@@ -517,7 +543,7 @@ class Blurrer:
             binary = resized >= 0.5
             if not np.any(binary):
                 return None
-            return {"mask": binary.astype(bool, copy=False), "x1": x1, "y1": y1}
+            return {"mask": binary.astype(bool), "x1": x1, "y1": y1}
         width = frame_shape[1]
         height = frame_shape[0]
         resized = cv2.resize(proto_mask, (width, height), interpolation=cv2.INTER_LINEAR)
@@ -543,7 +569,7 @@ class Blurrer:
     def _shrink_full_mask(
         self, mask: np.ndarray, frame_shape: tuple[int, ...]
     ) -> MaskRegion | None:
-        mask_bool = np.asarray(mask, dtype=bool, copy=False)
+        mask_bool = np.asarray(mask, dtype=bool)
         if mask_bool.ndim != 2 or not np.any(mask_bool):
             return None
         ys, xs = np.where(mask_bool)
@@ -573,14 +599,75 @@ class Blurrer:
         roi = mask[y1:y2, x1:x2]
         if roi.size == 0 or not np.any(roi):
             return None
-        return {"mask": roi.astype(bool, copy=False), "x1": x1, "y1": y1}
+        return {"mask": roi.astype(bool), "x1": x1, "y1": y1}
 
     def _apply_masks_to_frame(self, frame: np.ndarray, masks: Sequence[MaskRegion]) -> np.ndarray:
-        if not masks:
-            return frame
-        for region in masks:
-            frame = self._blur_mask_region(frame, region)
+        final_mask = self._build_frame_mask(frame.shape, masks, [])
+        if np.any(final_mask):
+            blurred_full = self._apply_blur_to_roi(frame.copy())
+            frame[final_mask] = blurred_full[final_mask]
         return frame
+
+    def _build_frame_mask(
+        self,
+        frame_shape: tuple[int, ...],
+        mask_rows: Sequence[dict[str, Any]],
+        rows_without_mask: Sequence[dict[str, Any]],
+    ) -> np.ndarray:
+        """
+        Build a combined mask for blurring.
+
+        Decodes masks on-demand from row dictionaries with mask payloads.
+        Uses batching for efficiency when decoding multiple masks.
+        """
+        height, width = frame_shape[:2]
+        full_mask = np.zeros((height, width), dtype=bool)
+
+        # Decode masks on-demand with batching
+        if mask_rows and self.mask_decoder:
+            decode_start = time.perf_counter()
+            try:
+                decoded_masks = self.mask_decoder.decode_masks_for_rows(mask_rows, (height, width))
+            except Exception as e:
+                self.logger.warning("Failed to decode masks: %s", e)
+                decoded_masks = []
+            finally:
+                duration_ms = (time.perf_counter() - decode_start) * 1000.0
+                self.logger.debug(
+                    "Decoded %d masks in %.2f ms (batched)",
+                    len(mask_rows),
+                    duration_ms,
+                )
+
+            # Apply decoded masks to the frame mask
+            for region in decoded_masks:
+                if region is None:
+                    continue
+                normalized = self._normalize_mask_region(region)
+                if normalized is None:
+                    continue
+                mask = np.asarray(normalized["mask"], dtype=bool)
+                if mask.ndim != 2 or not np.any(mask):
+                    continue
+                y1 = int(np.clip(normalized["y1"], 0, height))
+                x1 = int(np.clip(normalized["x1"], 0, width))
+                y2 = min(height, y1 + mask.shape[0])
+                x2 = min(width, x1 + mask.shape[1])
+                if x2 <= x1 or y2 <= y1:
+                    continue
+                full_mask[y1:y2, x1:x2] |= mask[: y2 - y1, : x2 - x1]
+
+        # Handle bounding boxes without masks (fall back to box-based blur)
+        if rows_without_mask:
+            boxes = [
+                (float(r["x1"]), float(r["y1"]), float(r["x2"]), float(r["y2"]))
+                for r in rows_without_mask
+            ]
+            absolute_rois = self._ensure_absolute_rois(boxes, frame_shape)
+            for x1, y1, x2, y2 in absolute_rois:
+                full_mask[y1:y2, x1:x2] = True
+
+        return full_mask
 
     def _blur_mask_region(self, frame: np.ndarray, mask_region: MaskRegion) -> np.ndarray:
         region = self._normalize_mask_region(mask_region)
@@ -588,7 +675,7 @@ class Blurrer:
             return frame
         mask = region["mask"]
         if mask.dtype != bool:
-            mask = mask.astype(bool, copy=False)
+            mask = mask.astype(bool)
         if not np.any(mask):
             return frame
         height, width = frame.shape[:2]
@@ -682,19 +769,10 @@ class Blurrer:
             return image
 
         mask_list, rows_without_mask = self._split_mask_rows(rows, image.shape, frame_num=0)
-        if mask_list:
-            image = self._apply_masks_to_frame(image, mask_list)
-
-        if rows_without_mask:
-            boxes = [(row["x1"], row["y1"], row["x2"], row["y2"]) for row in rows_without_mask]
-            absolute_rois = self._ensure_absolute_rois(boxes, image.shape)
-            if absolute_rois:
-                image = blur_rois(
-                    image,
-                    absolute_rois,
-                    blur_type=self.blur_type,
-                    blur_strength=self.blur_strength,
-                )
+        final_mask = self._build_frame_mask(image.shape, mask_list, rows_without_mask)
+        if np.any(final_mask):
+            blurred_full = self._apply_blur_to_roi(image.copy())
+            image[final_mask] = blurred_full[final_mask]
 
         if self.mask_decoder and hasattr(self.mask_decoder, "release_mask_proto"):
             frame_ids = {int(row.get("frame", 0)) for row in rows}

@@ -364,8 +364,8 @@ class TestGetConfigForArgs:
         args.embedding_similarity_gate = None
         args.blur_type = None
         args.blur_strength = None
-        args.plate_threshold = None
-        args.face_threshold = None
+        args.confidence_threshold = None
+        args.low_score_threshold = None
         args.tracker_params = None
         args.tracker = None
         args.use_sahi = None
@@ -391,8 +391,8 @@ class TestGetConfigForArgs:
         args.embedding_similarity_gate = None
         args.blur_type = None
         args.blur_strength = None
-        args.plate_threshold = None
-        args.face_threshold = None
+        args.confidence_threshold = None
+        args.low_score_threshold = None
         args.tracker_params = None
         args.tracker = None
         args.use_sahi = None
@@ -428,8 +428,8 @@ class TestGetConfigForArgs:
         args.embedding_similarity_gate = None
         args.blur_type = "gaussian"
         args.blur_strength = 15
-        args.plate_threshold = 0.5
-        args.face_threshold = 0.6
+        args.confidence_threshold = 0.5
+        args.low_score_threshold = 0.2
         args.blur_classes = "license_plate,vehicle"
         args.tracker_params = '{"distance_gate":0.55}'
         args.tracker = None
@@ -447,8 +447,8 @@ class TestGetConfigForArgs:
         assert result.model.name == "test_model"
         assert result.blur.type.value == "gaussian"
         assert result.blur.strength == 15
-        assert result.detection.plate_threshold == 0.5
-        assert result.detection.face_threshold == 0.6
+        assert result.detection.confidence_threshold == 0.5
+        assert result.detection.low_score_threshold == 0.2
         assert result.detection.classes_to_blur == ["license_plate", "vehicle"]
         mock_set_config.assert_called_once()
         assert result.detection.use_sahi is True
@@ -469,8 +469,8 @@ class TestGetConfigForArgs:
         args.embedding_similarity_gate = None
         args.blur_type = None
         args.blur_strength = None
-        args.plate_threshold = None
-        args.face_threshold = None
+        args.confidence_threshold = None
+        args.low_score_threshold = None
         args.tracker_params = None
         args.tracker = None
         args.use_sahi = None

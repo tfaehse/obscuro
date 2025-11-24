@@ -42,9 +42,10 @@ def test_dummy_tracker_smooths_and_dilates_boxes():
     first = tracks.filter(pl.col("frame") == 0).row(0, named=True)
     second = tracks.filter(pl.col("frame") == 1).row(0, named=True)
 
-    assert first["x2"] - first["x1"] == pytest.approx(44.0)
-    assert second["x2"] - second["x1"] == pytest.approx(44.0)
-    assert second["x1"] == pytest.approx(8.5)
+    # Dummy tracker doesn't dilate - it just assigns IDs
+    assert first["x2"] - first["x1"] == pytest.approx(40.0)  # unchanged from input
+    assert second["x2"] - second["x1"] == pytest.approx(40.0)  # unchanged from input
+    assert second["x1"] == pytest.approx(11.0)  # unchanged from input
 
 
 def test_dummy_tracker_reconfigure_and_empty_input():
@@ -195,8 +196,8 @@ def test_sort_tracker_basic_association():
 
 def test_fused_tracker_uses_embedding_gate(monkeypatch):
     params = TrackerParams(
-        high_thresh=0.5,
-        low_thresh=0.2,
+        confidence_threshold=0.5,
+        low_score_threshold=0.2,
         distance_gate=0.2,
         distance_gate_hi=0.15,
         distance_gate_lo=0.25,

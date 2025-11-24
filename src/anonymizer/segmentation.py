@@ -4,6 +4,7 @@ from typing import Any
 
 import cv2
 import numpy as np
+from scipy.special import expit
 
 
 def decode_yolo_masks(
@@ -33,15 +34,18 @@ def decode_yolo_masks(
     if coeffs.shape[1] != mask_dim:
         return [None] * len(boxes_xyxy)
 
-    proto_img = np.asarray(proto_img, dtype=np.float32, copy=False)
-    coeffs = np.asarray(coeffs, dtype=np.float32, copy=False)
+    proto_img = np.asarray(proto_img, dtype=np.float32)
+    coeffs = np.asarray(coeffs, dtype=np.float32)
     proto_flat = proto_img.reshape(mask_dim, -1)
     masks = _sigmoid(coeffs @ proto_flat).reshape(-1, proto_img.shape[1], proto_img.shape[2])
 
     pad_x, pad_y = meta.get("pad", (0.0, 0.0))
     scale_x, scale_y = meta.get("scale", (1.0, 1.0))
+    offset_x, offset_y = meta.get("offset", (0.0, 0.0))
     pad_x = float(pad_x)
     pad_y = float(pad_y)
+    offset_x = float(offset_x)
+    offset_y = float(offset_y)
     valid_w = max(1, min(imgsz, round(original_w * scale_x)))
     valid_h = max(1, min(imgsz, round(original_h * scale_y)))
 
@@ -115,18 +119,48 @@ def decode_yolo_masks(
         if not np.any(binary):
             continue
 
+        # Clip mask to the bbox intersection with the original image to avoid leaking outside.
+        x1_int = int(np.floor(x1_f + offset_x))
+        y1_int = int(np.floor(y1_f + offset_y))
+        x2_int = int(np.ceil(x2_f + offset_x))
+        y2_int = int(np.ceil(y2_f + offset_y))
+
+        if original_w > 0 and original_h > 0:
+            x1_clip = max(0, min(x1_int, original_w))
+            y1_clip = max(0, min(y1_int, original_h))
+            x2_clip = max(0, min(x2_int, original_w))
+            y2_clip = max(0, min(y2_int, original_h))
+        else:
+            x1_clip, y1_clip, x2_clip, y2_clip = x1_int, y1_int, x2_int, y2_int
+
+        if x2_clip <= x1_clip or y2_clip <= y1_clip:
+            continue
+
+        dx1 = x1_clip - x1_int
+        dy1 = y1_clip - y1_int
+        dx2 = x2_int - x2_clip
+        dy2 = y2_int - y2_clip
+        masked = binary
+        if dx1 or dy1 or dx2 or dy2:
+            masked = masked[
+                max(0, dy1) : masked.shape[0] - max(0, dy2),
+                max(0, dx1) : masked.shape[1] - max(0, dx2),
+            ]
+        if masked.size == 0 or not np.any(masked):
+            continue
+
         payloads[i] = {
-            "mask": binary.astype(bool, copy=False),
-            "x1": int(np.floor(x1_f)),
-            "y1": int(np.floor(y1_f)),
+            "mask": masked.astype(bool, copy=False),
+            "x1": x1_clip,
+            "y1": y1_clip,
         }
 
     return payloads
 
 
 def _sigmoid(values: np.ndarray) -> np.ndarray:
-    clipped = np.clip(values, -64.0, 64.0)
-    return 1.0 / (1.0 + np.exp(-clipped))
+    """Apply sigmoid activation function."""
+    return expit(np.clip(values, -64.0, 64.0))
 
 
 __all__ = ["decode_yolo_masks"]

@@ -43,6 +43,8 @@ class TrackerFactory:
         params: TrackerParams | dict | None = None,
         cancel_event=None,
         progress_callback=None,
+        confidence_threshold: float = 0.5,
+        low_score_threshold: float = 0.1,
     ):
         tracker_cls = get_tracker(name)
         tracker_params = params
@@ -55,6 +57,8 @@ class TrackerFactory:
             params=tracker_params,
             cancel_event=cancel_event,
             progress_callback=progress_callback,
+            confidence_threshold=confidence_threshold,
+            low_score_threshold=low_score_threshold,
         )
 
 

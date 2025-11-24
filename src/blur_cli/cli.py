@@ -232,10 +232,12 @@ def get_config_for_args(args) -> AnonymizerConfig:
         merge(override_tree, {"blur": blur_overrides})
 
     detection_overrides: dict[str, Any] = {}
-    if hasattr(args, "plate_threshold") and args.plate_threshold:
-        detection_overrides["plate_threshold"] = args.plate_threshold
-    if hasattr(args, "face_threshold") and args.face_threshold:
-        detection_overrides["face_threshold"] = args.face_threshold
+    confidence_arg = getattr(args, "confidence_threshold", None)
+    low_score_arg = getattr(args, "low_score_threshold", None)
+    if confidence_arg is not None:
+        detection_overrides["confidence_threshold"] = confidence_arg
+    if low_score_arg is not None:
+        detection_overrides["low_score_threshold"] = low_score_arg
     if hasattr(args, "batch_size") and args.batch_size is not None:
         detection_overrides["batch_size"] = max(1, int(args.batch_size))
     if hasattr(args, "use_sahi") and args.use_sahi is not None:
@@ -503,14 +505,16 @@ Examples:
             "--blur-strength", type=int, help="Blur strength/intensity (overrides config file)"
         )
         subparser.add_argument(
-            "--plate-threshold",
+            "--confidence-threshold",
+            dest="confidence_threshold",
             type=float,
-            help="Detection threshold for license plates (overrides config file)",
+            help="Global detection threshold (overrides config file)",
         )
         subparser.add_argument(
-            "--face-threshold",
+            "--low-score-threshold",
+            dest="low_score_threshold",
             type=float,
-            help="Detection threshold for faces (overrides config file)",
+            help="Minimum score retained before NMS (overrides config file)",
         )
         subparser.add_argument(
             "--batch-size",

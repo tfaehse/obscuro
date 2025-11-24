@@ -292,7 +292,7 @@ blur-cli video dashcam.mp4 --blur-type pixelate --tracker dummy
 
 # Custom tracking parameters
 blur-cli video dashcam.mp4 --tracker bytetrack \
-  --tracker-params '{"high_thresh":0.5,"low_thresh":0.2}'
+  --tracker-params '{"distance_gate":0.05,"confirm_after_N":3}'
 
 # Use custom model
 blur-cli video dashcam.mp4 --model /path/to/custom_model.onnx

@@ -17,8 +17,6 @@ const TRACKER_PRESETS: Record<string, TrackerParams> = {
     bbox_dilate_pct: 0.15,
     temporal_smooth_alpha: 0.7,
     ema_alpha: 0.6,
-    high_thresh: 0.6,
-    low_thresh: 0.2,
     embedding_similarity_gate: 0.55,
     distance_gate_hi: 0.05,
     distance_gate_lo: 0.02,
@@ -40,8 +38,6 @@ const TRACKER_PRESETS: Record<string, TrackerParams> = {
     bbox_dilate_pct: 0.2,
     temporal_smooth_alpha: 1.0,
     ema_alpha: 0.6,
-    high_thresh: 0.4,
-    low_thresh: 0.1,
     embedding_similarity_gate: 0.55,
     distance_gate_hi: 0.05,
     distance_gate_lo: 0.02,
@@ -63,8 +59,6 @@ const TRACKER_PRESETS: Record<string, TrackerParams> = {
     bbox_dilate_pct: 0.2,
     temporal_smooth_alpha: 1.0,
     ema_alpha: 0.6,
-    high_thresh: 0.4,
-    low_thresh: 0.1,
     embedding_similarity_gate: 0.55,
     distance_gate_hi: 0.05,
     distance_gate_lo: 0.02,
@@ -86,8 +80,6 @@ const TRACKER_PRESETS: Record<string, TrackerParams> = {
     bbox_dilate_pct: 0.25,
     temporal_smooth_alpha: 1.0,
     ema_alpha: 0.6,
-    high_thresh: 0.6,
-    low_thresh: 0.2,
     embedding_similarity_gate: 0.55,
     distance_gate_hi: 0.05,
     distance_gate_lo: 0.02,
@@ -109,8 +101,6 @@ const TRACKER_PRESETS: Record<string, TrackerParams> = {
     bbox_dilate_pct: 0.2,
     temporal_smooth_alpha: 1.0,
     ema_alpha: 0.6,
-    high_thresh: 0.5,
-    low_thresh: 0.2,
     embedding_similarity_gate: 0.55,
     distance_gate_hi: 0.08,
     distance_gate_lo: 0.15,
@@ -148,8 +138,8 @@ export class ConfigController {
     this.bindSectionField('blur-type', 'blur', 'type', v => v as any);
     this.bindSectionField('blur-strength', 'blur', 'strength', v => parseInt(String(v), 10));
 
-    this.bindSectionField('plate-threshold', 'detection', 'plate_threshold', v => parseFloat(String(v)));
-    this.bindSectionField('face-threshold', 'detection', 'face_threshold', v => parseFloat(String(v)));
+    this.bindSectionField('plate-threshold', 'detection', 'confidence_threshold', v => parseFloat(String(v)));
+    this.bindSectionField('face-threshold', 'detection', 'low_score_threshold', v => parseFloat(String(v)));
     this.bindSectionField('batch-size', 'detection', 'batch_size', v => parseInt(String(v), 10));
     this.bindSectionField('use-sahi', 'detection', 'use_sahi', v => Boolean(v));
     this.bindSectionField('inference-size', 'detection', 'inference_size', v => parseInt(String(v), 10));
@@ -165,8 +155,7 @@ export class ConfigController {
     this.bindTrackingParam('track-confirm-after', 'confirm_after_N', v => parseInt(String(v), 10));
     this.bindTrackingParam('track-max-misses', 'max_misses_M', v => parseInt(String(v), 10));
     this.bindTrackingParam('track-low-score-pool', 'use_low_score_pool', v => Boolean(v));
-    this.bindTrackingParam('track-high-thresh', 'high_thresh', v => parseFloat(String(v)));
-    this.bindTrackingParam('track-low-thresh', 'low_thresh', v => parseFloat(String(v)));
+
     this.bindTrackingParam('track-emb-sim-gate', 'embedding_similarity_gate', v => parseFloat(String(v)));
     this.bindTrackingParam('track-cam-motion', 'cam_motion_comp', v => Boolean(v));
     this.bindTrackingParam('track-flow-backend', 'flow_backend', v => String(v));
@@ -219,8 +208,8 @@ export class ConfigController {
       model: { name: options.model.current },
       blur: { type: options.blur.current_type as any, strength: options.blur.current_strength },
       detection: {
-        plate_threshold: options.detection.current_plate_threshold,
-        face_threshold: options.detection.current_face_threshold,
+        confidence_threshold: options.detection.current_confidence_threshold,
+        low_score_threshold: options.detection.current_low_score_threshold,
         batch_size: detectionBatch,
         use_sahi: options.detection.use_sahi ?? current.detection.use_sahi,
         inference_size: options.detection.current_inference_size ?? current.detection.inference_size,
@@ -316,8 +305,8 @@ export class ConfigController {
     this.setValue('model-select', config.model.name);
     this.setValue('blur-type', config.blur.type);
     this.setValue('blur-strength', config.blur.strength);
-    this.setValue('plate-threshold', config.detection.plate_threshold);
-    this.setValue('face-threshold', config.detection.face_threshold);
+    this.setValue('plate-threshold', config.detection.confidence_threshold);
+    this.setValue('face-threshold', config.detection.low_score_threshold);
     this.setValue('batch-size', config.detection.batch_size);
     this.setValue('use-sahi', config.detection.use_sahi);
     this.setValue('inference-size', config.detection.inference_size);
@@ -334,8 +323,7 @@ export class ConfigController {
     this.setValue('track-max-misses', params.max_misses_M);
     this.setValue('track-low-score-pool', params.use_low_score_pool);
     this.setValue('tracker-ema-alpha', params.ema_alpha);
-    this.setValue('track-high-thresh', params.high_thresh);
-    this.setValue('track-low-thresh', params.low_thresh);
+
     this.setValue('track-cam-motion', params.cam_motion_comp);
     this.setValue('track-flow-backend', params.flow_backend);
     this.setValue('track-use-visual', params.use_visual_tracker);

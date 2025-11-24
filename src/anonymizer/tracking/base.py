@@ -84,10 +84,17 @@ class BaseTracker:
         self.video_source = Path(source) if source else None
         self._reset_frame_iterator()
 
-    def reconfigure(self, params: TrackerParams) -> None:
+    def reconfigure(
+        self,
+        params: TrackerParams,
+        confidence_threshold: float | None = None,
+        low_score_threshold: float | None = None,
+    ) -> None:
+        """Reconfigure tracker parameters. Subclasses may use threshold params."""
         logger.info("Reconfiguring tracker parameters: %s", params.model_dump())
         self.params = params
         self._reset_frame_iterator()
+        # Base implementation ignores thresholds; subclasses override as needed
 
     def track(self, detections: pl.DataFrame) -> pl.DataFrame:
         if detections.is_empty():
@@ -106,7 +113,7 @@ class BaseTracker:
                     "age": pl.Int64,
                     "last_seen": pl.Int64,
                     "score": pl.Float64,
-                    "mask": pl.Null,
+                    "mask": pl.Int64,
                 }
             )
 
@@ -147,7 +154,10 @@ class BaseTracker:
                 message = format_progress_message(prefix, fps, remaining)
                 self.progress_callback(percentage, "Tracking", message)
 
-        return pl.DataFrame(outputs)
+        df = pl.DataFrame(outputs) if outputs else pl.DataFrame({})
+        if "mask" in df.columns:
+            df = df.with_columns(pl.col("mask").cast(pl.Int64))
+        return df
 
     # ------------------------------------------------------------------
     # Core algorithm

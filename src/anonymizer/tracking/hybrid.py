@@ -390,8 +390,8 @@ def _cosine_similarities(history: list[np.ndarray], current: np.ndarray) -> np.n
     """Compute cosine similarities between history embeddings and the current one."""
     if not history:
         return np.zeros(0, dtype=np.float32)
-    stacked = np.stack(history, axis=0).astype(np.float32, copy=False)
-    current = current.astype(np.float32, copy=False)
+    stacked = np.stack(history, axis=0).astype(np.float32)
+    current = current.astype(np.float32)
     norm_hist = np.linalg.norm(stacked, axis=1, keepdims=True) + 1e-8
     norm_cur = np.linalg.norm(current) + 1e-8
     return (stacked @ current) / (norm_hist[:, 0] * norm_cur)

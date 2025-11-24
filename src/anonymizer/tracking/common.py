@@ -26,7 +26,7 @@ class Detection:
     score: float
     frame_size: tuple[int, int] | None = None
     is_confident: bool = True
-    mask: dict[str, Any] | None = None
+    mask: int | None = None
 
     def as_xyah(self) -> np.ndarray:
         return tlwh_to_xyah(self.tlwh)
@@ -46,7 +46,7 @@ class TrackObservation:
     should_blur: bool
     frame_size: tuple[int, int] | None = None
     debug_color: tuple[int, int, int] | None = None
-    mask: dict[str, Any] | None = None
+    mask: int | None = None
 
     def as_dict(self, *, include_debug: bool = False) -> dict[str, Any]:
         x, y, w, h = self.tlwh.tolist()

@@ -79,8 +79,8 @@ class Anonymizer(CancellationMixin):
             model_path,
             cancel_event=self.cancel_event,
             progress_callback=self.progress_callback,
-            plate_threshold=self.config.detection.plate_threshold,
-            face_threshold=self.config.detection.face_threshold,
+            confidence_threshold=self.config.detection.confidence_threshold,
+            low_score_threshold=self.config.detection.low_score_threshold,
             batch_size=self.config.detection.batch_size,
             use_sahi=self.config.detection.use_sahi,
             inference_size=self.config.detection.inference_size,
@@ -96,6 +96,8 @@ class Anonymizer(CancellationMixin):
             video_source=None,  # Will be set before tracking
             cancel_event=self.cancel_event,
             progress_callback=self.progress_callback,
+            confidence_threshold=self.config.detection.confidence_threshold,
+            low_score_threshold=self.config.detection.low_score_threshold,
             **tracker_kwargs,
         )
         self.tracker.progress_callback = self.progress_callback
@@ -155,21 +157,27 @@ class Anonymizer(CancellationMixin):
             root_logger.setLevel(numeric_level)
 
     def update_detection_thresholds(
-        self, plate_threshold: float | None = None, face_threshold: float | None = None
+        self,
+        confidence_threshold: float | None = None,
+        low_score_threshold: float | None = None,
     ) -> None:
         """
         Update detection thresholds at runtime.
 
-        :param plate_threshold: New plate detection threshold (if provided)
-        :param face_threshold: New face detection threshold (if provided)
+        :param confidence_threshold: New global detection threshold (if provided)
+        :param low_score_threshold: Minimum score to retain before NMS (if provided)
         """
-        if plate_threshold is not None:
-            self.config.detection.plate_threshold = plate_threshold
-        if face_threshold is not None:
-            self.config.detection.face_threshold = face_threshold
+        if confidence_threshold is not None:
+            self.config.detection.confidence_threshold = confidence_threshold
+        if low_score_threshold is not None:
+            self.config.detection.low_score_threshold = low_score_threshold
 
         # Update the detector instance
-        self.detector.set_thresholds(plate_threshold, face_threshold)
+        self.detector.set_thresholds(confidence_threshold, low_score_threshold)
+
+        # Update tracker thresholds if tracker supports them
+        if hasattr(self.tracker, "set_thresholds"):
+            self.tracker.set_thresholds(confidence_threshold, low_score_threshold)
 
     def update_tracking_settings(
         self,
@@ -193,12 +201,18 @@ class Anonymizer(CancellationMixin):
                 video_source=self.tracker.video_source,
                 cancel_event=self.cancel_event,
                 progress_callback=self.progress_callback,
+                confidence_threshold=self.config.detection.confidence_threshold,
+                low_score_threshold=self.config.detection.low_score_threshold,
                 **tracker_kwargs,
             )
         else:
             tracker_params = tracker_kwargs.get("params")
             if isinstance(tracker_params, TrackerParams):
-                self.tracker.reconfigure(tracker_params)  # type: ignore[arg-type]
+                self.tracker.reconfigure(
+                    tracker_params,
+                    confidence_threshold=self.config.detection.confidence_threshold,
+                    low_score_threshold=self.config.detection.low_score_threshold,
+                )
 
     def get_tracker_info(self) -> dict[str, Any]:
         """
@@ -214,9 +228,6 @@ class Anonymizer(CancellationMixin):
         video_path: Path | None,
     ) -> pl.DataFrame:
         """Optionally run the offline linker and update debug metadata."""
-        if not self.config.tracking.use_offline_linker:
-            return tracks
-
         should_emit_debug_plot = bool(os.environ.get("BLUR_DEBUG_TRACK_PLOT"))
 
         descriptor = getattr(type(self.tracker), "track_history", None)

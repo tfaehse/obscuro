@@ -44,7 +44,7 @@ def sample_config():
     return AnonymizerConfig(
         model=ModelConfig(name="test_model"),
         blur=BlurConfig(type=BlurType.GAUSSIAN, strength=10),
-        detection=DetectionConfig(plate_threshold=0.5, face_threshold=0.5),
+        detection=DetectionConfig(confidence_threshold=0.5, low_score_threshold=0.1),
         tracking=TrackingConfig(
             type=TrackerType.BYTETRACK,
             params=dict(DEFAULT_TRACKER_PARAMS[TrackerType.BYTETRACK]),
@@ -136,8 +136,8 @@ type = "gaussian"
 strength = 10
 
 [detection]
-plate_threshold = 0.5
-face_threshold = 0.5
+confidence_threshold = 0.5
+low_score_threshold = 0.1
 
 [tracking]
 type = "bytetrack"
@@ -152,8 +152,8 @@ confirm_after_N = 2
 max_misses_M = 10
 offline_linker_max_misses = 30
 offline_linker_per_frame_gate = 0.05
-high_thresh = 0.6
-low_thresh = 0.2
+confidence_threshold = 0.6
+low_score_threshold = 0.2
 use_low_score_pool = true
 distance_gate_hi = 0.05
 distance_gate_lo = 0.01

@@ -46,8 +46,8 @@ config = AnonymizerConfig(
     model={"name": "1280_nano"},
     blur={"type": BlurType.PIXELATE, "strength": 20},
     detection={
-        "plate_threshold": 0.3,
-        "face_threshold": 0.4,
+        "confidence_threshold": 0.3,
+        "low_score_threshold": 0.1,
         "batch_size": 8,
         "use_sahi": True,
         "inference_size": 2560
@@ -295,9 +295,7 @@ config = AnonymizerConfig(
             "distance_gate": 0.1,
             "confirm_after_N": 3,
             "max_misses_M": 15,
-            "cam_motion_comp": True,
-            "high_thresh": 0.5,
-            "low_thresh": 0.2
+            "cam_motion_comp": True
         }
     }
 )
@@ -357,8 +355,8 @@ from pathlib import Path
 config = AnonymizerConfig(
     model={"file": Path("/path/to/custom_model.onnx")},
     detection={
-        "plate_threshold": 0.4,
-        "face_threshold": 0.4
+        "confidence_threshold": 0.4,
+        "low_score_threshold": 0.1
     }
 )
 
@@ -420,8 +418,8 @@ def process_with_progress(input_path: Path, output_path: Path):
     config = AnonymizerConfig(
         blur={"type": BlurType.PIXELATE, "strength": 20},
         detection={
-            "plate_threshold": 0.3,
-            "face_threshold": 0.4,
+            "confidence_threshold": 0.3,
+            "low_score_threshold": 0.1,
             "batch_size": 8
         },
         tracking={"type": TrackerType.BOTSORT},
@@ -557,8 +555,8 @@ def process_4k_video(input_path: Path, output_path: Path):
             "inference_size": 3840,
             "sahi_overlap_ratio": 0.25,
             "batch_size": 4,
-            "plate_threshold": 0.3,
-            "face_threshold": 0.3
+            "confidence_threshold": 0.3,
+            "low_score_threshold": 0.1
         },
         tracking={
             "type": TrackerType.BOTSORT,
@@ -690,8 +688,8 @@ config = AnonymizerConfig(
 ```python
 config = AnonymizerConfig(
     detection={
-        "plate_threshold": 0.2,  # Lower thresholds
-        "face_threshold": 0.2,
+        "confidence_threshold": 0.2,  # Lower threshold
+        "low_score_threshold": 0.1,
         "use_sahi": True  # Enable tiled inference
     }
 )

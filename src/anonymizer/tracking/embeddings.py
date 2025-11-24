@@ -73,7 +73,7 @@ class EmbeddingModel:
         emb = outputs[0]
         if emb.ndim > 2:
             emb = np.reshape(emb, (emb.shape[0], -1))
-        return emb[0].astype(np.float32, copy=False)
+        return emb[0].astype(np.float32)
 
 
 def get_embedding_model(path: Path | None = None) -> EmbeddingModel | None:

@@ -18,8 +18,8 @@ export interface BlurConfig {
 }
 
 export interface DetectionConfig {
-  plate_threshold: number; // 0-1
-  face_threshold: number;  // 0-1
+  confidence_threshold: number; // 0-1
+  low_score_threshold: number;  // 0-1
   batch_size: number;      // 1-256
   use_sahi: boolean;
   inference_size: number;
@@ -41,8 +41,6 @@ export interface TrackerParams {
   bbox_dilate_pct: number;
   temporal_smooth_alpha: number;
   ema_alpha: number;
-  high_thresh: number;
-  low_thresh: number;
   embedding_similarity_gate: number;
   distance_gate_hi: number;
   distance_gate_lo: number;
@@ -87,8 +85,8 @@ export interface ConfigOptions {
     strength_range: [number, number];
   };
   detection: {
-    current_plate_threshold: number;
-    current_face_threshold: number;
+    current_confidence_threshold: number;
+    current_low_score_threshold: number;
     current_batch_size: number | null;
     threshold_range: [number, number];
     use_sahi: boolean;

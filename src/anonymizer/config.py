@@ -80,11 +80,14 @@ class BlurConfig(BaseModel):
 class DetectionConfig(BaseModel):
     """Detection-related configuration."""
 
-    plate_threshold: float = Field(
-        default=0.5, ge=0.0, le=1.0, description="License plate detection confidence threshold"
+    confidence_threshold: float = Field(
+        default=0.5, ge=0.0, le=1.0, description="Global detection confidence threshold"
     )
-    face_threshold: float = Field(
-        default=0.5, ge=0.0, le=1.0, description="Face detection confidence threshold"
+    low_score_threshold: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence retained before NMS (also used by low-score pools)",
     )
     batch_size: int = Field(
         default=4,
@@ -130,8 +133,6 @@ class TrackerParams(BaseModel):
     bbox_dilate_pct: float = Field(0.2, ge=0.0, le=0.6)
     temporal_smooth_alpha: float = Field(0.65, ge=0.0, le=1.0)
     ema_alpha: float = Field(0.6, ge=0.0, le=1.0)
-    high_thresh: float = Field(0.6, ge=0.0, le=1.0)
-    low_thresh: float = Field(0.2, ge=0.0, le=1.0)
     embedding_similarity_gate: float = Field(0.55, ge=0.0, le=1.0)
     min_detection_rate: float = Field(0.0, ge=0.0, le=1.0)
     distance_gate_hi: float = Field(0.05, ge=0.0, le=1.0)
@@ -153,8 +154,6 @@ DEFAULT_TRACKER_PARAMS: dict[TrackerType, dict[str, Any]] = {
         "bbox_dilate_pct": 0.2,
         "temporal_smooth_alpha": 1.0,
         "use_low_score_pool": True,
-        "high_thresh": 0.4,
-        "low_thresh": 0.1,
         "process_noise": 1.0,
     },
     TrackerType.DUMMY: {
@@ -174,8 +173,6 @@ DEFAULT_TRACKER_PARAMS: dict[TrackerType, dict[str, Any]] = {
         "bbox_dilate_pct": 0.2,
         "temporal_smooth_alpha": 1.0,
         "use_low_score_pool": True,
-        "high_thresh": 0.4,
-        "low_thresh": 0.1,
         "distance_gate_hi": 0.05,
         "distance_gate_lo": 0.02,
         "cam_motion_comp": True,
@@ -203,8 +200,6 @@ DEFAULT_TRACKER_PARAMS: dict[TrackerType, dict[str, Any]] = {
         "bbox_dilate_pct": 0.2,
         "temporal_smooth_alpha": 1.0,
         "use_low_score_pool": True,
-        "high_thresh": 0.5,
-        "low_thresh": 0.2,
         "distance_gate_hi": 0.08,
         "distance_gate_lo": 0.15,
     },
@@ -544,8 +539,8 @@ type = "gaussian"
 strength = 10
 
 [detection]
-plate_threshold = 0.5
-face_threshold = 0.5
+confidence_threshold = 0.5
+low_score_threshold = 0.1
 batch_size = 8
 # use_sahi = false
 # inference_size = 1920
@@ -565,8 +560,6 @@ use_offline_linker = true
 # confirm_after_N = 2
 # max_misses_M = 10
 # offline_linker_max_misses = 30
-# high_thresh = 0.6
-# low_thresh = 0.2
 # use_low_score_pool = true
 # distance_gate_hi = 0.05
 # distance_gate_lo = 0.02

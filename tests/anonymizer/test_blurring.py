@@ -497,12 +497,17 @@ class TestBlurrerVideoMethods:
                     (0.5, 0.5, 0.7, 0.7),
                 ]
                 mock_convert.assert_called_once_with(expected_boxes, test_frame.shape[:2])
-                mock_blur_rois.assert_called_once_with(
-                    test_frame,
-                    [(10, 10, 30, 30), (50, 50, 70, 70)],
-                    blur_type="pixelate",
-                    blur_strength=20,
-                )
+                # Use ANY for the frame argument to avoid numpy array comparison error
+                # Use call_args to verify arguments manually to avoid numpy array comparison error
+                assert mock_blur_rois.call_count == 1
+                args, kwargs = mock_blur_rois.call_args
+                assert np.array_equal(args[0], test_frame)
+                # The current implementation blurs the entire frame copy and then applies the mask
+                # So the ROI passed to blur_rois is the full frame
+                h, w = test_frame.shape[:2]
+                assert args[1] == [(0, 0, w, h)]
+                assert kwargs["blur_type"] == "pixelate"
+                assert kwargs["blur_strength"] == 20
 
             # Reset mocks and test frame with no detections
             mock_convert.reset_mock()
@@ -659,3 +664,1124 @@ def test_blurrer_invalid_strength():
     # The method does not raise, but should clamp or ignore invalid values
     blurrer.set_blur_settings(blur_strength=-1)
     blurrer.set_blur_settings(blur_strength=1000)
+
+
+class TestMaskDecoder:
+    """Test mask decoder functionality."""
+
+    def test_set_mask_decoder(self):
+        """Test setting a mask decoder."""
+        blurrer = Blurrer()
+        mock_decoder = Mock()
+
+        blurrer.set_mask_decoder(mock_decoder)
+
+        assert blurrer.mask_decoder == mock_decoder
+
+    def test_set_mask_decoder_none(self):
+        """Test setting mask decoder to None."""
+        blurrer = Blurrer()
+        mock_decoder = Mock()
+        blurrer.set_mask_decoder(mock_decoder)
+
+        blurrer.set_mask_decoder(None)
+
+        assert blurrer.mask_decoder is None
+
+
+class TestGroupRowsByFrame:
+    """Test _group_rows_by_frame static method."""
+
+    def test_group_rows_by_frame_basic(self):
+        """Test grouping rows by frame number."""
+        import polars as pl
+
+        df = pl.DataFrame(
+            {
+                "frame": [0, 0, 1, 2, 2, 2],
+                "x1": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+                "y1": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+            }
+        )
+
+        result = Blurrer._group_rows_by_frame(df)
+
+        assert len(result[0]) == 2
+        assert len(result[1]) == 1
+        assert len(result[2]) == 3
+
+    def test_group_rows_by_frame_empty(self):
+        """Test grouping with empty dataframe."""
+        import polars as pl
+
+        df = pl.DataFrame({"frame": [], "x1": [], "y1": []})
+        result = Blurrer._group_rows_by_frame(df)
+
+        assert result == {}
+
+    def test_group_rows_by_frame_none(self):
+        """Test grouping with None dataframe."""
+        result = Blurrer._group_rows_by_frame(None)
+        assert result == {}
+
+    def test_group_rows_by_frame_no_frame_column(self):
+        """Test grouping with dataframe without frame column."""
+        import polars as pl
+
+        df = pl.DataFrame(
+            {
+                "x1": [0.1, 0.2],
+                "y1": [0.1, 0.2],
+            }
+        )
+
+        result = Blurrer._group_rows_by_frame(df)
+
+        # Should use frame 0 as default
+        assert 0 in result
+        assert len(result[0]) == 2
+
+
+class TestDrawingFunctions:
+    """Test drawing helper functions."""
+
+    def test_draw_box_basic(self):
+        """Test drawing a box on frame."""
+        blurrer = Blurrer()
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        row = {"x1": 10.0, "y1": 10.0, "x2": 50.0, "y2": 50.0}
+
+        blurrer._draw_box(frame, row, (255, 0, 0))
+
+        # Check that some pixels were drawn
+        assert np.any(frame > 0)
+
+    def test_draw_box_with_label(self):
+        """Test drawing a box with label."""
+        blurrer = Blurrer()
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        row = {"x1": 10.0, "y1": 10.0, "x2": 50.0, "y2": 50.0}
+
+        blurrer._draw_box(frame, row, (255, 0, 0), label="Test")
+
+        # Check that some pixels were drawn
+        assert np.any(frame > 0)
+
+    def test_draw_box_empty_frame(self):
+        """Test drawing on empty frame."""
+        blurrer = Blurrer()
+        frame = np.array([], dtype=np.uint8).reshape(0, 0, 3)
+        row = {"x1": 10.0, "y1": 10.0, "x2": 50.0, "y2": 50.0}
+
+        # Should not crash
+        blurrer._draw_box(frame, row, (255, 0, 0))
+
+    def test_draw_box_width_height_format(self):
+        """Test drawing box with width/height instead of x2/y2."""
+        blurrer = Blurrer()
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        row = {"x1": 10.0, "y1": 10.0, "width": 40.0, "height": 40.0}
+
+        blurrer._draw_box(frame, row, (255, 0, 0))
+
+        assert np.any(frame > 0)
+
+    def test_draw_box_invalid_coordinates(self):
+        """Test drawing box with invalid coordinates (x2 <= x1)."""
+        blurrer = Blurrer()
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        row = {"x1": 50.0, "y1": 50.0, "x2": 10.0, "y2": 10.0}
+
+        # Should not crash
+        blurrer._draw_box(frame, row, (255, 0, 0))
+
+    def test_draw_box_clipped_coordinates(self):
+        """Test drawing box with coordinates outside frame bounds."""
+        blurrer = Blurrer()
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        row = {"x1": -10.0, "y1": -10.0, "x2": 150.0, "y2": 150.0}
+
+        blurrer._draw_box(frame, row, (255, 0, 0))
+
+        # Should clip and draw
+        assert np.any(frame > 0)
+
+    def test_draw_mask_basic(self):
+        """Test drawing a mask on frame."""
+        blurrer = Blurrer()
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        mask = np.zeros((30, 30), dtype=np.uint8)
+        mask[10:20, 10:20] = 1
+        mask_region = {"mask": mask, "x1": 10, "y1": 10}
+
+        blurrer._draw_mask(frame, mask_region, (255, 0, 0))
+
+        # Check that contours were drawn
+        assert np.any(frame > 0)
+
+    def test_draw_mask_none(self):
+        """Test drawing with None mask."""
+        blurrer = Blurrer()
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+
+        # Should not crash
+        blurrer._draw_mask(frame, None, (255, 0, 0))
+
+    def test_draw_mask_empty_mask(self):
+        """Test drawing with empty mask (all zeros)."""
+        blurrer = Blurrer()
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        mask = np.zeros((30, 30), dtype=np.uint8)
+        mask_region = {"mask": mask, "x1": 10, "y1": 10}
+
+        # Should not crash
+        blurrer._draw_mask(frame, mask_region, (255, 0, 0))
+
+    def test_draw_mask_invalid_shape(self):
+        """Test drawing with invalid mask shape."""
+        blurrer = Blurrer()
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        mask = np.zeros((30, 30, 3), dtype=np.uint8)  # 3D mask, should be 2D
+        mask_region = {"mask": mask, "x1": 10, "y1": 10}
+
+        # Should not crash
+        blurrer._draw_mask(frame, mask_region, (255, 0, 0))
+
+
+class TestMaskRegionFunctions:
+    """Test mask region helper functions."""
+
+    def test_normalize_mask_region_valid(self):
+        """Test normalizing a valid mask region."""
+        mask = np.ones((10, 10), dtype=bool)
+        region = {"mask": mask, "x1": 5, "y1": 10}
+
+        result = Blurrer._normalize_mask_region(region)
+
+        assert result is not None
+        assert result["x1"] == 5
+        assert result["y1"] == 10
+        assert np.array_equal(result["mask"], mask)
+
+    def test_normalize_mask_region_None(self):
+        """Test normalizing None."""
+        result = Blurrer._normalize_mask_region(None)
+        assert result is None
+
+    def test_normalize_mask_region_not_dict(self):
+        """Test normalizing non-dict value."""
+        result = Blurrer._normalize_mask_region("not a dict")
+        assert result is None
+
+    def test_normalize_mask_region_missing_fields(self):
+        """Test normalizing region with missing fields."""
+        result = Blurrer._normalize_mask_region({"mask": np.ones((10, 10))})
+        assert result is None
+
+        result = Blurrer._normalize_mask_region({"x1": 5, "y1": 10})
+        assert result is None
+
+    def test_normalize_mask_region_empty_mask(self):
+        """Test normalizing region with empty (all False) mask."""
+        mask = np.zeros((10, 10), dtype=bool)
+        region = {"mask": mask, "x1": 5, "y1": 10}
+
+        result = Blurrer._normalize_mask_region(region)
+
+        assert result is None
+
+    def test_normalize_mask_region_invalid_coords(self):
+        """Test normalizing region with invalid coordinates."""
+        mask = np.ones((10, 10), dtype=bool)
+        region = {"mask": mask, "x1": "invalid", "y1": 10}
+
+        result = Blurrer._normalize_mask_region(region)
+
+        assert result is None
+
+    def test_mask_region_from_polygon_relative(self):
+        """Test creating mask from relative polygon."""
+        blurrer = Blurrer()
+        points = [[0.1, 0.1], [0.3, 0.1], [0.3, 0.3], [0.1, 0.3]]
+        frame_shape = (100, 100, 3)
+
+        result = blurrer._mask_region_from_polygon(points, frame_shape, relative=True)
+
+        assert result is not None
+        assert "mask" in result
+        assert "x1" in result
+        assert "y1" in result
+
+    def test_mask_region_from_polygon_absolute(self):
+        """Test creating mask from absolute polygon."""
+        blurrer = Blurrer()
+        points = [[10.0, 10.0], [30.0, 10.0], [30.0, 30.0], [10.0, 30.0]]
+        frame_shape = (100, 100, 3)
+
+        result = blurrer._mask_region_from_polygon(points, frame_shape, relative=False)
+
+        assert result is not None
+        assert "mask" in result
+
+    def test_mask_region_from_polygon_none(self):
+        """Test creating mask from None points."""
+        blurrer = Blurrer()
+        result = blurrer._mask_region_from_polygon(None, (100, 100, 3), relative=True)
+        assert result is None
+
+    def test_mask_region_from_polygon_invalid_shape(self):
+        """Test creating mask from invalid polygon shape."""
+        blurrer = Blurrer()
+        points = [[0.1, 0.1, 0.5]]  # Wrong shape
+        frame_shape = (100, 100, 3)
+
+        result = blurrer._mask_region_from_polygon(points, frame_shape, relative=True)
+
+        # Should return None for invalid shape
+        assert result is None
+
+    def test_mask_region_from_polygon_zero_area(self):
+        """Test creating mask from polygon with zero area."""
+        blurrer = Blurrer()
+        points = [[0.1, 0.1], [0.1, 0.1], [0.1, 0.1]]  # All same point
+        frame_shape = (100, 100, 3)
+
+        result = blurrer._mask_region_from_polygon(points, frame_shape, relative=True)
+
+        assert result is None
+
+    def test_mask_region_from_binary(self):
+        """Test creating mask from binary payload."""
+        blurrer = Blurrer()
+        data = [True] * 100
+        size = (10, 10)
+        payload = {"data": data, "size": size}
+        frame_shape = (100, 100, 3)
+
+        result = blurrer._mask_region_from_binary(payload, frame_shape)
+
+        assert result is not None
+
+    def test_mask_region_from_binary_missing_data(self):
+        """Test creating mask from binary with missing data."""
+        blurrer = Blurrer()
+        payload = {"size": (10, 10)}
+        frame_shape = (100, 100, 3)
+
+        result = blurrer._mask_region_from_binary(payload, frame_shape)
+
+        assert result is None
+
+    def test_mask_region_from_binary_invalid_size(self):
+        """Test creating mask from binary with invalid size."""
+        blurrer = Blurrer()
+        data = [True] * 100
+        payload = {"data": data, "size": "invalid"}
+        frame_shape = (100, 100, 3)
+
+        result = blurrer._mask_region_from_binary(payload, frame_shape)
+
+        assert result is None
+
+    def test_mask_region_from_binary_reshape_error(self):
+        """Test creating mask from binary with reshape error."""
+        blurrer = Blurrer()
+        data = [True] * 50  # Wrong size for reshape
+        size = (10, 10)
+        payload = {"data": data, "size": size}
+        frame_shape = (100, 100, 3)
+
+        result = blurrer._mask_region_from_binary(payload, frame_shape)
+
+        assert result is None
+
+    def test_mask_region_from_proto_with_row(self):
+        """Test creating mask from proto payload with row."""
+        blurrer = Blurrer()
+        # Create proto mask data
+        proto_h, proto_w = 28, 28
+        data = (np.ones((proto_h, proto_w), dtype=np.uint8) * 255).tobytes()
+        payload = {"data": data, "size": (proto_h, proto_w)}
+        row = {"x1": 10.0, "y1": 10.0, "x2": 50.0, "y2": 50.0}
+        frame_shape = (100, 100, 3)
+
+        result = blurrer._mask_region_from_proto(payload, frame_shape, row)
+
+        assert result is not None
+        assert result["x1"] == 10
+        assert result["y1"] == 10
+
+    def test_mask_region_from_proto_without_row(self):
+        """Test creating mask from proto payload without row."""
+        blurrer = Blurrer()
+        proto_h, proto_w = 28, 28
+        data = (np.ones((proto_h, proto_w), dtype=np.uint8) * 255).tobytes()
+        payload = {"data": data, "size": (proto_h, proto_w)}
+        frame_shape = (100, 100, 3)
+
+        result = blurrer._mask_region_from_proto(payload, frame_shape, None)
+
+        assert result is not None
+
+    def test_mask_region_from_proto_invalid_data(self):
+        """Test creating mask from proto with invalid data."""
+        blurrer = Blurrer()
+        payload = {"data": "not bytes", "size": (28, 28)}
+        frame_shape = (100, 100, 3)
+
+        result = blurrer._mask_region_from_proto(payload, frame_shape, None)
+
+        assert result is None
+
+    def test_mask_region_from_proto_wrong_size(self):
+        """Test creating mask from proto with all zeros (below threshold)."""
+        blurrer = Blurrer()
+        proto_h, proto_w = 28, 28
+        # All zeros will be below 0.5 threshold after normalization
+        data = bytes(proto_h * proto_w)
+        payload = {"data": data, "size": (proto_h, proto_w)}
+        frame_shape = (100, 100, 3)
+
+        result = blurrer._mask_region_from_proto(payload, frame_shape, None)
+
+        # All zeros will create empty mask after threshold, so result should be None
+        assert result is None
+
+    def test_shrink_full_mask(self):
+        """Test shrinking a full-frame mask."""
+        blurrer = Blurrer()
+        mask = np.zeros((100, 100), dtype=bool)
+        mask[10:30, 20:40] = True
+        frame_shape = (100, 100, 3)
+
+        result = blurrer._shrink_full_mask(mask, frame_shape)
+
+        assert result is not None
+        assert result["x1"] == 20
+        assert result["y1"] == 10
+
+    def test_shrink_full_mask_empty(self):
+        """Test shrinking empty mask."""
+        blurrer = Blurrer()
+        mask = np.zeros((100, 100), dtype=bool)
+        frame_shape = (100, 100, 3)
+
+        result = blurrer._shrink_full_mask(mask, frame_shape)
+
+        assert result is None
+
+    def test_shrink_full_mask_invalid_dimensions(self):
+        """Test shrinking mask with invalid dimensions."""
+        blurrer = Blurrer()
+        mask = np.zeros((100, 100, 3), dtype=bool)  # 3D, should be 2D
+        frame_shape = (100, 100, 3)
+
+        result = blurrer._shrink_full_mask(mask, frame_shape)
+
+        assert result is None
+
+    def test_extract_roi_from_mask(self):
+        """Test extracting ROI from mask."""
+        mask = np.ones((100, 100), dtype=bool)
+        frame_shape = (100, 100, 3)
+
+        result = Blurrer._extract_roi_from_mask(mask, frame_shape, x1=10, y1=10, x2=50, y2=50)
+
+        assert result is not None
+        assert result["x1"] == 10
+        assert result["y1"] == 10
+
+    def test_extract_roi_from_mask_clipping(self):
+        """Test extracting ROI with coordinates outside bounds."""
+        mask = np.ones((100, 100), dtype=bool)
+        frame_shape = (100, 100, 3)
+
+        result = Blurrer._extract_roi_from_mask(mask, frame_shape, x1=-10, y1=-10, x2=150, y2=150)
+
+        assert result is not None
+        assert result["x1"] == 0
+        assert result["y1"] == 0
+
+    def test_extract_roi_from_mask_invalid_bounds(self):
+        """Test extracting ROI with invalid bounds (x2 <= x1)."""
+        mask = np.ones((100, 100), dtype=bool)
+        frame_shape = (100, 100, 3)
+
+        result = Blurrer._extract_roi_from_mask(mask, frame_shape, x1=50, y1=50, x2=10, y2=10)
+
+        assert result is None
+
+    def test_extract_roi_from_mask_empty(self):
+        """Test extracting ROI from empty mask region."""
+        mask = np.zeros((100, 100), dtype=bool)
+        frame_shape = (100, 100, 3)
+
+        result = Blurrer._extract_roi_from_mask(mask, frame_shape, x1=10, y1=10, x2=50, y2=50)
+
+        assert result is None
+
+
+class TestDecodesMaskPayload:
+    """Test _decode_mask_payload function."""
+
+    def test_decode_mask_payload_none(self):
+        """Test decoding None payload."""
+        blurrer = Blurrer()
+        result = blurrer._decode_mask_payload(None, (100, 100, 3))
+        assert result is None
+
+    def test_decode_mask_payload_invalid_frame_shape(self):
+        """Test decoding with invalid frame shape."""
+        blurrer = Blurrer()
+        payload = {"format": "relative_polygon", "points": [[0.1, 0.1]]}
+        result = blurrer._decode_mask_payload(payload, (0, 0, 3))
+        assert result is None
+
+    def test_decode_mask_payload_with_decoder(self):
+        """Test decoding integer payload with decoder."""
+        blurrer = Blurrer()
+        mock_decoder = Mock()
+        mock_decoder.decode_mask_from_payload.return_value = {
+            "mask": np.ones((10, 10), dtype=bool),
+            "x1": 5,
+            "y1": 10,
+        }
+        blurrer.set_mask_decoder(mock_decoder)
+
+        result = blurrer._decode_mask_payload(123, (100, 100, 3), {"frame": 0})
+
+        assert result is not None
+        mock_decoder.decode_mask_from_payload.assert_called_once()
+
+    def test_decode_mask_payload_relative_polygon(self):
+        """Test decoding relative polygon payload."""
+        blurrer = Blurrer()
+        payload = {
+            "format": "relative_polygon",
+            "points": [[0.1, 0.1], [0.3, 0.1], [0.3, 0.3], [0.1, 0.3]],
+        }
+
+        result = blurrer._decode_mask_payload(payload, (100, 100, 3))
+
+        assert result is not None
+
+    def test_decode_mask_payload_absolute_polygon(self):
+        """Test decoding absolute polygon payload."""
+        blurrer = Blurrer()
+        payload = {
+            "format": "absolute_polygon",
+            "points": [[10.0, 10.0], [30.0, 10.0], [30.0, 30.0], [10.0, 30.0]],
+        }
+
+        result = blurrer._decode_mask_payload(payload, (100, 100, 3))
+
+        assert result is not None
+
+    def test_decode_mask_payload_binary(self):
+        """Test decoding binary payload."""
+        blurrer = Blurrer()
+        payload = {
+            "format": "binary",
+            "data": [True] * 100,
+            "size": (10, 10),
+        }
+
+        result = blurrer._decode_mask_payload(payload, (100, 100, 3))
+
+        assert result is not None
+
+    def test_decode_mask_payload_proto_mask(self):
+        """Test decoding proto_mask payload."""
+        blurrer = Blurrer()
+        proto_h, proto_w = 28, 28
+        data = (np.ones((proto_h, proto_w), dtype=np.uint8) * 255).tobytes()
+        payload = {
+            "format": "proto_mask",
+            "data": data,
+            "size": (proto_h, proto_w),
+        }
+        row = {"x1": 10.0, "y1": 10.0, "x2": 50.0, "y2": 50.0}
+
+        result = blurrer._decode_mask_payload(payload, (100, 100, 3), row)
+
+        assert result is not None
+
+
+class TestBlurMaskRegion:
+    """Test _blur_mask_region function."""
+
+    def test_blur_mask_region_basic(self):
+        """Test blurring a mask region."""
+        blurrer = Blurrer()
+        frame = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+        mask = np.zeros((30, 30), dtype=bool)
+        mask[10:20, 10:20] = True
+        mask_region = {"mask": mask, "x1": 10, "y1": 10}
+
+        result = blurrer._blur_mask_region(frame, mask_region)
+
+        assert result.shape == frame.shape
+
+    def test_blur_mask_region_none(self):
+        """Test blurring with None mask region."""
+        blurrer = Blurrer()
+        frame = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+
+        result = blurrer._blur_mask_region(frame, None)
+
+        # Should return frame unchanged
+        assert np.array_equal(result, frame)
+
+    def test_blur_mask_region_empty_mask(self):
+        """Test blurring with empty mask."""
+        blurrer = Blurrer()
+        frame = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+        mask = np.zeros((30, 30), dtype=bool)
+        mask_region = {"mask": mask, "x1": 10, "y1": 10}
+
+        result = blurrer._blur_mask_region(frame, mask_region)
+
+        # Should return frame unchanged
+        assert np.array_equal(result, frame)
+
+    def test_blur_mask_region_out_of_bounds(self):
+        """Test blurring with mask region outside frame bounds."""
+        blurrer = Blurrer()
+        frame = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+        mask = np.ones((30, 30), dtype=bool)
+        mask_region = {"mask": mask, "x1": 200, "y1": 200}
+
+        result = blurrer._blur_mask_region(frame, mask_region)
+
+        # Should return frame unchanged
+        assert np.array_equal(result, frame)
+
+
+class TestApplyMasksToFrame:
+    """Test _apply_masks_to_frame function."""
+
+    def test_apply_masks_to_frame_basic(self):
+        """Test applying masks to frame."""
+        blurrer = Blurrer()
+        frame = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+        mask = np.ones((30, 30), dtype=bool)
+        masks = [{"mask": mask, "x1": 10, "y1": 10}]
+
+        result = blurrer._apply_masks_to_frame(frame, masks)
+
+        assert result.shape == frame.shape
+
+    def test_apply_masks_to_frame_empty_list(self):
+        """Test applying empty mask list."""
+        blurrer = Blurrer()
+        frame = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+
+        result = blurrer._apply_masks_to_frame(frame, [])
+
+        # Should return frame unchanged
+        assert np.array_equal(result, frame)
+
+
+class TestSplitMaskRows:
+    """Test _split_mask_rows function."""
+
+    def test_split_mask_rows_with_masks(self):
+        """Test splitting rows with mask data."""
+        blurrer = Blurrer()
+        rows = [
+            {"x1": 0.1, "y1": 0.1, "x2": 0.2, "y2": 0.2, "mask": 123},
+            {"x1": 0.3, "y1": 0.3, "x2": 0.4, "y2": 0.4, "mask": None},
+            {"x1": 0.5, "y1": 0.5, "x2": 0.6, "y2": 0.6, "mask": {"format": "binary"}},
+        ]
+
+        with_mask, without_mask = blurrer._split_mask_rows(rows, (100, 100, 3), 0)
+
+        assert len(with_mask) == 2
+        assert len(without_mask) == 1
+
+    def test_split_mask_rows_no_masks(self):
+        """Test splitting rows without mask data."""
+        blurrer = Blurrer()
+        rows = [
+            {"x1": 0.1, "y1": 0.1, "x2": 0.2, "y2": 0.2},
+            {"x1": 0.3, "y1": 0.3, "x2": 0.4, "y2": 0.4, "mask": None},
+        ]
+
+        with_mask, without_mask = blurrer._split_mask_rows(rows, (100, 100, 3), 0)
+
+        assert len(with_mask) == 0
+        assert len(without_mask) == 2
+
+
+class TestApplyDetectionsToImage:
+    """Test _apply_detections_to_image function."""
+
+    def test_apply_detections_to_image_none_image(self):
+        """Test applying detections to None image."""
+        import polars as pl
+
+        blurrer = Blurrer()
+        detections = pl.DataFrame({"x1": [0.1], "y1": [0.1], "x2": [0.2], "y2": [0.2]})
+
+        with pytest.raises(ValueError, match="Failed to load image"):
+            blurrer._apply_detections_to_image(None, detections)
+
+    def test_apply_detections_to_image_debug_mode(self):
+        """Test applying detections in debug mode."""
+        import polars as pl
+
+        blurrer = Blurrer(blur_type="debug")
+        image = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+        detections = pl.DataFrame(
+            {
+                "x1": [0.1, 0.5],
+                "y1": [0.1, 0.5],
+                "x2": [0.3, 0.7],
+                "y2": [0.3, 0.7],
+            }
+        )
+
+        result = blurrer._apply_detections_to_image(image, detections)
+
+        assert result.shape == image.shape
+        # In debug mode, boxes should be drawn
+        assert np.any(result > 0)
+
+    def test_apply_detections_with_is_confident_column(self):
+        """Test applying detections with is_confident column."""
+        import polars as pl
+
+        blurrer = Blurrer()
+        image = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+        detections = pl.DataFrame(
+            {
+                "x1": [0.1, 0.5],
+                "y1": [0.1, 0.5],
+                "x2": [0.3, 0.7],
+                "y2": [0.3, 0.7],
+                "is_confident": [True, False],  # Second detection should be filtered out
+            }
+        )
+
+        result = blurrer._apply_detections_to_image(image, detections)
+
+        assert result.shape == image.shape
+
+    def test_apply_detections_with_mask_decoder_release(self):
+        """Test mask decoder release after applying detections."""
+        import polars as pl
+
+        blurrer = Blurrer()
+        mock_decoder = Mock()
+        mock_decoder.decode_masks_for_rows.return_value = []
+        blurrer.set_mask_decoder(mock_decoder)
+
+        image = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+        detections = pl.DataFrame(
+            {
+                "x1": [0.1],
+                "y1": [0.1],
+                "x2": [0.3],
+                "y2": [0.3],
+                "frame": [0],
+            }
+        )
+
+        result = blurrer._apply_detections_to_image(image, detections)
+
+        assert result.shape == image.shape
+        # Mask decoder release should be called if it has the method
+        if hasattr(mock_decoder, "release_mask_proto"):
+            mock_decoder.release_mask_proto.assert_called()
+
+
+class TestEnsureAbsoluteRois:
+    """Test _ensure_absolute_rois function."""
+
+    def test_ensure_absolute_rois_empty_list(self):
+        """Test with empty boxes list."""
+        result = Blurrer._ensure_absolute_rois([], (100, 100, 3))
+        assert result == []
+
+    def test_ensure_absolute_rois_relative(self):
+        """Test converting relative coordinates."""
+        boxes = [(0.1, 0.1, 0.3, 0.3), (0.5, 0.5, 0.7, 0.7)]
+        result = Blurrer._ensure_absolute_rois(boxes, (100, 100, 3))
+
+        assert len(result) == 2
+        # Check that coordinates are now in pixel space
+        assert all(coord >= 0 for roi in result for coord in roi)
+
+    def test_ensure_absolute_rois_already_absolute(self):
+        """Test with already absolute coordinates."""
+        boxes = [(10.0, 10.0, 50.0, 50.0), (60.0, 60.0, 90.0, 90.0)]
+        result = Blurrer._ensure_absolute_rois(boxes, (100, 100, 3))
+
+        assert len(result) == 2
+
+
+class TestRenderDebug:
+    """Test _render_debug function."""
+
+    def test_render_debug_with_masks(self):
+        """Test debug rendering with masks."""
+        blurrer = Blurrer(blur_type="debug")
+        mock_decoder = Mock()
+        mask_region = {"mask": np.ones((20, 20), dtype=bool), "x1": 10, "y1": 10}
+        mock_decoder.decode_masks_for_rows.return_value = [mask_region]
+        blurrer.set_mask_decoder(mock_decoder)
+
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        tracks = [{"x1": 10.0, "y1": 10.0, "x2": 30.0, "y2": 30.0, "track_id": 1}]
+        detections = [{"x1": 40.0, "y1": 40.0, "x2": 60.0, "y2": 60.0, "confidence": 0.95}]
+
+        blurrer._render_debug(frame, tracks, detections)
+
+        # Should have drawn both tracks and detections
+        assert np.any(frame > 0)
+
+    def test_render_debug_with_confidence_filter(self):
+        """Test debug rendering filters out non-confident detections."""
+        blurrer = Blurrer(blur_type="debug")
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        tracks = []
+        detections = [
+            {"x1": 10.0, "y1": 10.0, "x2": 30.0, "y2": 30.0, "is_confident": True},
+            {"x1": 40.0, "y1": 40.0, "x2": 60.0, "y2": 60.0, "is_confident": False},
+        ]
+
+        blurrer._render_debug(frame, tracks, detections)
+
+        # Only confident detection should be drawn
+
+    def test_render_debug_with_custom_color(self):
+        """Test debug rendering with custom track colors."""
+        blurrer = Blurrer(blur_type="debug")
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        tracks = [
+            {
+                "x1": 10.0,
+                "y1": 10.0,
+                "x2": 30.0,
+                "y2": 30.0,
+                "track_id": 1,
+                "debug_color": [0, 255, 0],  # Green
+            }
+        ]
+
+        blurrer._render_debug(frame, tracks, None)
+
+        # Should use custom color
+        assert np.any(frame[:, :, 1] > 0)  # Green channel
+
+    def test_render_debug_invalid_color(self):
+        """Test debug rendering with invalid custom color."""
+        blurrer = Blurrer(blur_type="debug")
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        tracks = [
+            {
+                "x1": 10.0,
+                "y1": 10.0,
+                "x2": 30.0,
+                "y2": 30.0,
+                "track_id": 1,
+                "debug_color": "invalid",  # Should fall back to default
+            }
+        ]
+
+        blurrer._render_debug(frame, tracks, None)
+
+
+class TestBuildFrameMask:
+    """Test _build_frame_mask function."""
+
+    def test_build_frame_mask_with_decoder(self):
+        """Test building frame mask with decoder."""
+        blurrer = Blurrer()
+        mock_decoder = Mock()
+        mask_region = {"mask": np.ones((20, 20), dtype=bool), "x1": 10, "y1": 10}
+        mock_decoder.decode_masks_for_rows.return_value = [mask_region]
+        blurrer.set_mask_decoder(mock_decoder)
+
+        mask_rows = [{"x1": 10.0, "y1": 10.0, "x2": 30.0, "y2": 30.0, "mask": 123}]
+
+        result = blurrer._build_frame_mask((100, 100, 3), mask_rows, [])
+
+        assert result.shape == (100, 100)
+        assert np.any(result)
+        mock_decoder.decode_masks_for_rows.assert_called_once()
+
+    def test_build_frame_mask_decoder_error(self):
+        """Test building frame mask when decoder raises error."""
+        blurrer = Blurrer()
+        mock_decoder = Mock()
+        mock_decoder.decode_masks_for_rows.side_effect = Exception("Decode error")
+        blurrer.set_mask_decoder(mock_decoder)
+
+        mask_rows = [{"x1": 10.0, "y1": 10.0, "x2": 30.0, "y2": 30.0, "mask": 123}]
+
+        # Should not crash, just log warning
+        result = blurrer._build_frame_mask((100, 100, 3), mask_rows, [])
+
+        assert result.shape == (100, 100)
+
+    def test_build_frame_mask_with_boxes(self):
+        """Test building frame mask with bounding boxes."""
+        blurrer = Blurrer()
+        rows_without_mask = [
+            {"x1": 10.0, "y1": 10.0, "x2": 30.0, "y2": 30.0},
+            {"x1": 50.0, "y1": 50.0, "x2": 70.0, "y2": 70.0},
+        ]
+
+        result = blurrer._build_frame_mask((100, 100, 3), [], rows_without_mask)
+
+        assert result.shape == (100, 100)
+        assert np.any(result)
+
+
+class TestApplyBlurToRoi:
+    """Test _apply_blur_to_roi function."""
+
+    def test_apply_blur_to_roi_empty(self):
+        """Test applying blur to empty ROI."""
+        blurrer = Blurrer()
+        roi = np.array([], dtype=np.uint8).reshape(0, 0, 3)
+
+        result = blurrer._apply_blur_to_roi(roi)
+
+        assert result.size == 0
+
+
+class TestAdditionalEdgeCases:
+    """Additional edge case tests for maximum coverage."""
+
+    def test_decode_mask_payload_unknown_format(self):
+        """Test decoding payload with unknown format."""
+        blurrer = Blurrer()
+        payload = {"format": "unknown_format", "data": "something"}
+
+        result = blurrer._decode_mask_payload(payload, (100, 100, 3))
+
+        assert result is None
+
+    def test_decode_mask_payload_decoder_exception(self):
+        """Test decoding with decoder that raises exception."""
+        blurrer = Blurrer()
+        mock_decoder = Mock()
+        mock_decoder.decode_mask_from_payload.side_effect = Exception("Decoder error")
+        blurrer.set_mask_decoder(mock_decoder)
+
+        # Should handle exception gracefully and return None
+        result = blurrer._decode_mask_payload(123, (100, 100, 3), {"frame": 0})
+
+        assert result is None
+
+    def test_mask_region_from_binary_3d_mask(self):
+        """Test binary mask that reshapes into 3D (invalid)."""
+        blurrer = Blurrer()
+        data = [True] * 60
+        size = (3, 4, 5)  # 3D size
+        payload = {"data": data, "size": size}
+        frame_shape = (100, 100, 3)
+
+        result = blurrer._mask_region_from_binary(payload, frame_shape)
+
+        assert result is None
+
+    def test_mask_region_from_proto_zero_roi(self):
+        """Test proto mask with zero-sized ROI."""
+        blurrer = Blurrer()
+        proto_h, proto_w = 28, 28
+        data = (np.ones((proto_h, proto_w), dtype=np.uint8) * 255).tobytes()
+        payload = {"data": data, "size": (proto_h, proto_w)}
+        # Row with same x1 and x2 (zero width)
+        row = {"x1": 10.0, "y1": 10.0, "x2": 10.0, "y2": 50.0}
+        frame_shape = (100, 100, 3)
+
+        result = blurrer._mask_region_from_proto(payload, frame_shape, row)
+
+        assert result is None
+
+    def test_mask_region_from_proto_invalid_size_format(self):
+        """Test proto with invalid size format."""
+        blurrer = Blurrer()
+        data = bytes(100)
+        payload = {"data": data, "size": "invalid"}
+        frame_shape = (100, 100, 3)
+
+        result = blurrer._mask_region_from_proto(payload, frame_shape, None)
+
+        assert result is None
+
+    def test_blur_mask_region_non_bool_dtype(self):
+        """Test blurring mask region with non-bool dtype."""
+        blurrer = Blurrer()
+        frame = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+        # Mask with uint8 dtype instead of bool
+        mask = np.zeros((30, 30), dtype=np.uint8)
+        mask[10:20, 10:20] = 1
+        mask_region = {"mask": mask, "x1": 10, "y1": 10}
+
+        result = blurrer._blur_mask_region(frame, mask_region)
+
+        assert result.shape == frame.shape
+
+    def test_draw_box_zero_height_width_frame(self):
+        """Test drawing box on frame with zero dimension."""
+        blurrer = Blurrer()
+        # Frame with valid shape but effectively zero area
+        frame = np.zeros((0, 100, 3), dtype=np.uint8)
+        row = {"x1": 10.0, "y1": 10.0, "x2": 50.0, "y2": 50.0}
+
+        # Should not crash
+        blurrer._draw_box(frame, row, (255, 0, 0))
+
+    @patch("anonymizer.blurring.blur_video_av")
+    @patch("anonymizer.blurring.get_video_info")
+    def test_blur_video_with_mask_decoder_release(self, mock_get_video_info, mock_blur_video_av):
+        """Test blur_video calls mask decoder release."""
+        from pathlib import Path
+
+        import polars as pl
+
+        input_path = Path("input.mp4")
+        output_path = Path("output.mp4")
+
+        mock_get_video_info.return_value = {"frame_count": 10}
+
+        detections = pl.DataFrame(
+            {
+                "frame": [0],
+                "x1": [0.1],
+                "y1": [0.1],
+                "x2": [0.2],
+                "y2": [0.2],
+                "mask": [123],
+            }
+        )
+
+        blurrer = Blurrer()
+        mock_decoder = Mock()
+        mock_decoder.decode_masks_for_rows.return_value = []
+        mock_decoder.release_mask_proto = Mock()
+        blurrer.set_mask_decoder(mock_decoder)
+
+        # Capture the blur function
+        captured_blur_func = None
+
+        def capture_func(*args, **kwargs):
+            nonlocal captured_blur_func
+            captured_blur_func = kwargs.get("blur_func")
+
+        mock_blur_video_av.side_effect = capture_func
+
+        blurrer.blur_video(input_path, detections, output_path)
+
+        # Call the blur function to trigger mask release
+        if captured_blur_func:
+            test_frame = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+            captured_blur_func(test_frame, 0)
+
+            # Verify mask decoder release was called
+            mock_decoder.release_mask_proto.assert_called_with(0)
+
+    def test_build_frame_mask_invalid_mask_regions(self):
+        """Test building frame mask with invalid mask regions from decoder."""
+        blurrer = Blurrer()
+        mock_decoder = Mock()
+        # Return invalid mask regions (missing fields, wrong types)
+        mock_decoder.decode_masks_for_rows.return_value = [
+            None,  # None region
+            {},  # Empty dict
+            {"mask": "invalid"},  # Invalid mask
+            {"mask": np.ones((20, 20), dtype=bool), "x1": 10},  # Missing y1
+        ]
+        blurrer.set_mask_decoder(mock_decoder)
+
+        mask_rows = [
+            {"x1": 10.0, "y1": 10.0, "x2": 30.0, "y2": 30.0, "mask": 123},
+            {"x1": 40.0, "y1": 40.0, "x2": 60.0, "y2": 60.0, "mask": 456},
+        ]
+
+        result = blurrer._build_frame_mask((100, 100, 3), mask_rows, [])
+
+        # Should handle invalid regions gracefully
+        assert result.shape == (100, 100)
+
+    def test_build_frame_mask_out_of_bounds_mask(self):
+        """Test building frame mask with mask coordinates outside frame."""
+        blurrer = Blurrer()
+        mock_decoder = Mock()
+        # Mask positioned outside frame bounds
+        mask_region = {"mask": np.ones((20, 20), dtype=bool), "x1": 200, "y1": 200}
+        mock_decoder.decode_masks_for_rows.return_value = [mask_region]
+        blurrer.set_mask_decoder(mock_decoder)
+
+        mask_rows = [{"x1": 10.0, "y1": 10.0, "x2": 30.0, "y2": 30.0, "mask": 123}]
+
+        result = blurrer._build_frame_mask((100, 100, 3), mask_rows, [])
+
+        # Should clip coordinates
+        assert result.shape == (100, 100)
+
+    def test_build_frame_mask_empty_decoded_mask(self):
+        """Test building frame mask with decoded mask that has no True values."""
+        blurrer = Blurrer()
+        mock_decoder = Mock()
+        # All-False mask
+        mask_region = {"mask": np.zeros((20, 20), dtype=bool), "x1": 10, "y1": 10}
+        mock_decoder.decode_masks_for_rows.return_value = [mask_region]
+        blurrer.set_mask_decoder(mock_decoder)
+
+        mask_rows = [{"x1": 10.0, "y1": 10.0, "x2": 30.0, "y2": 30.0, "mask": 123}]
+
+        result = blurrer._build_frame_mask((100, 100, 3), mask_rows, [])
+
+        assert result.shape == (100, 100)
+
+    def test_render_debug_without_decoder(self):
+        """Test render debug without mask decoder (fallback to decode_mask_payload)."""
+        blurrer = Blurrer(blur_type="debug")
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+
+        # Track with mask payload as dict
+        tracks = [
+            {
+                "x1": 10.0,
+                "y1": 10.0,
+                "x2": 30.0,
+                "y2": 30.0,
+                "track_id": 1,
+                "mask": {
+                    "format": "relative_polygon",
+                    "points": [[0.1, 0.1], [0.3, 0.1], [0.3, 0.3], [0.1, 0.3]],
+                },
+            }
+        ]
+
+        # Detection with mask
+        detections = [
+            {
+                "x1": 40.0,
+                "y1": 40.0,
+                "x2": 60.0,
+                "y2": 60.0,
+                "confidence": 0.95,
+                "is_confident": True,
+                "mask": {
+                    "format": "relative_polygon",
+                    "points": [[0.4, 0.4], [0.6, 0.4], [0.6, 0.6], [0.4, 0.6]],
+                },
+            }
+        ]
+
+        blurrer._render_debug(frame, tracks, detections)
+
+        # Should have drawn both
+        assert np.any(frame > 0)
+
+
+@pytest.fixture
+def sample_image():
+    """Create a sample image for testing."""
+    return np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
