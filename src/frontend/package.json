@@ -1,7 +1,7 @@
 {
   "name": "blur-gui",
   "version": "1.0.0",
-  "description": "Video anonymization tool with AI-powered face and license plate blurring",
+  "description": "Video anonymization tool with AI-powered detection and blurring for bikes, heads, people, plates, and vehicles",
   "main": "dist/electron/main/main.js",
   "type": "module",
   "scripts": {

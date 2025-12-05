@@ -16,6 +16,8 @@ from .io.blur_rois import blur_rois, convert_relative_to_absolute_rois
 from .io.video import blur_video_av, get_video_info
 from .utils.progress import ProgressRateEstimator, format_progress_message
 
+logger = logging.getLogger("obscuro.blurring")
+
 
 class MaskRegion(TypedDict):
     mask: np.ndarray
@@ -83,7 +85,6 @@ class Blurrer:
         self.cancel_event = cancel_event
         self.progress_callback = progress_callback
         self.mask_decoder: Any | None = None
-        self.logger = logging.getLogger("obscuro.blurring")
 
     def set_mask_decoder(self, decoder: Any | None) -> None:
         self.mask_decoder = decoder
@@ -156,7 +157,7 @@ class Blurrer:
                 detection_rows = detection_rows_by_frame.get(frame_num, [])
                 self._render_debug(frame, track_rows, detection_rows)
                 duration_ms = (time.perf_counter() - frame_start) * 1000.0
-                self.logger.debug("Processed frame %d in %.2f ms (debug)", frame_num, duration_ms)
+                logger.debug("Processed frame %d in %.2f ms (debug)", frame_num, duration_ms)
                 return frame
 
             if track_rows:
@@ -170,7 +171,8 @@ class Blurrer:
                     blurred_full = self._apply_blur_to_roi(frame.copy())
                     frame[final_mask] = blurred_full[final_mask]
             duration_ms = (time.perf_counter() - frame_start) * 1000.0
-            self.logger.debug(
+            duration_ms = (time.perf_counter() - frame_start) * 1000.0
+            logger.debug(
                 "Processed frame %d in %.2f ms (mask_rows=%d, box_rows=%d)",
                 frame_num,
                 duration_ms,
@@ -630,11 +632,11 @@ class Blurrer:
             try:
                 decoded_masks = self.mask_decoder.decode_masks_for_rows(mask_rows, (height, width))
             except Exception as e:
-                self.logger.warning("Failed to decode masks: %s", e)
+                logger.warning("Failed to decode masks: %s", e)
                 decoded_masks = []
             finally:
                 duration_ms = (time.perf_counter() - decode_start) * 1000.0
-                self.logger.debug(
+                logger.debug(
                     "Decoded %d masks in %.2f ms (batched)",
                     len(mask_rows),
                     duration_ms,

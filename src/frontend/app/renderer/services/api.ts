@@ -25,7 +25,7 @@ export class APIService {
     formData.append('config', JSON.stringify(config));
     formData.append('output_filename', 'output.mp4');  // Add required output_filename
 
-  const response = await fetch(`${this.baseUrl}/blur/video_file`, {
+    const response = await fetch(`${this.baseUrl}/blur/video_file`, {
       method: 'POST',
       body: formData,
     });
@@ -114,7 +114,7 @@ export class APIService {
 
   // Cancel a running job
   async cancelJob(jobId: string): Promise<void> {
-  const response = await fetch(`${this.baseUrl}/blur/cancel_video/${jobId}`, {
+    const response = await fetch(`${this.baseUrl}/blur/cancel_video/${jobId}`, {
       method: 'POST',
     });
 
@@ -124,9 +124,21 @@ export class APIService {
     }
   }
 
+  // Reset backend state
+  async resetBackend(): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/blur/reset`, {
+      method: 'POST',
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to reset backend: ${errorText}`);
+    }
+  }
+
   // Get download URL for completed job
   getDownloadUrl(jobId: string): string {
-  return `${this.baseUrl}/blur/download/${jobId}`;
+    return `${this.baseUrl}/blur/download/${jobId}`;
   }
 
   async fetchConfigOptions(): Promise<ConfigOptions> {
@@ -193,7 +205,7 @@ export class APIService {
     // Supply nested overrides as JSON (partial AnonymizerConfig)
     formData.append('config', JSON.stringify(request.config || {}));
 
-  const response = await fetch(`${this.baseUrl}/blur/frame`, {
+    const response = await fetch(`${this.baseUrl}/blur/frame`, {
       method: 'POST',
       body: formData,
     });

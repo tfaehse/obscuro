@@ -1,6 +1,6 @@
 # Obscuro Documentation
 
-Welcome to the comprehensive documentation for **Obscuro**, a dashcam video anonymization system for detecting, tracking, and blurring faces and license plates in videos.
+Welcome to the comprehensive documentation for **Obscuro**, a dashcam video anonymization system for detecting, tracking, and blurring people, heads, vehicles, bikes, and plates in videos.
 
 ## Quick Links
 
@@ -25,7 +25,7 @@ Detection → Tracking → Blurring
 
 ### Processing Pipeline
 
-1. **Detection**: Neural network-based detection of faces and license plates
+1. **Detection**: Neural network-based detection of supported classes (bike, head, person, plate, vehicle)
 2. **Tracking**: Multi-object tracking to associate detections across frames
 3. **Blurring**: Apply blur effects (Gaussian, pixelate, blackout, etc.)
 

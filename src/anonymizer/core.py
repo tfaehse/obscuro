@@ -11,6 +11,15 @@ from typing import Any
 import numpy as np
 import polars as pl
 
+try:
+    from plotly import graph_objects as go  # type: ignore
+    from plotly.colors import qualitative  # type: ignore
+    from plotly.subplots import make_subplots  # type: ignore
+except ImportError:
+    go = None
+    qualitative = None
+    make_subplots = None
+
 from .blurring import Blurrer
 from .cancellation import CancellationException, CancellationMixin
 from .config import (
@@ -345,9 +354,9 @@ class Anonymizer(CancellationMixin):
         if video_path is None:
             return
 
-        from plotly import graph_objects as go  # type: ignore
-        from plotly.colors import qualitative  # type: ignore
-        from plotly.subplots import make_subplots  # type: ignore
+        if go is None:
+            logger.warning("Plotly not installed, skipping debug plot")
+            return
 
         output_path = Path(video_path)
         output_file = output_path.with_name(f"{output_path.stem}_tracks.html")

@@ -60,7 +60,7 @@ blur-cli --config-debug video input.mp4
 
 ### `image` - Process Images
 
-Blur faces and license plates in a single image.
+Blur detected objects (bike, head, person, plate, vehicle) in a single image.
 
 ```bash
 blur-cli image INPUT [OPTIONS]
@@ -83,7 +83,7 @@ blur-cli image input.jpg -o output.jpg
 
 ###### `--model NAME_OR_PATH`
 Specify which model to use. Can be:
-- Model name (without .onnx extension): `--model 1280_nano` or `--model 640_nano`
+- Model name (without .onnx extension): `--model 1280_nano_seg` or `--model 640_nano_seg`
 - Full path to ONNX file: `--model /path/to/model.onnx`
 
 Overrides config file setting.
@@ -116,29 +116,29 @@ blur-cli image input.jpg --blur-strength 25
 
 ##### Detection Options
 
-###### `--plate-threshold FLOAT`
-Confidence threshold for license plate detection (0.0-1.0). Lower values detect more plates but may include false positives.
+###### `--confidence-threshold FLOAT`
+Global detection threshold (0.0-1.0). Lower values detect more objects but may include false positives.
 
 Default: `0.5`
 
 ```bash
-blur-cli image input.jpg --plate-threshold 0.3
+blur-cli image input.jpg --confidence-threshold 0.4
 ```
 
-###### `--face-threshold FLOAT`
-Confidence threshold for face detection (0.0-1.0).
+###### `--low-score-threshold FLOAT`
+Minimum score retained before NMS (0.0-1.0). Useful for tracker low-score pools.
 
-Default: `0.5`
+Default: `0.1`
 
 ```bash
-blur-cli image input.jpg --face-threshold 0.6
+blur-cli image input.jpg --low-score-threshold 0.1
 ```
 
 ###### `--blur-classes LIST`
-Comma-separated list of detector classes to blur. Supported values: `person`, `car`, `bus`, `motorcycle`, `truck`.
+Comma-separated list of detector classes to blur. Supported values: `bike`, `head`, `person`, `plate`, `vehicle`.
 
 ```bash
-blur-cli video input.mp4 --blur-classes person,car,truck
+blur-cli video input.mp4 --blur-classes plate,head,person
 ```
 
 ###### `--batch-size N`
@@ -247,7 +247,7 @@ blur-cli image large_photo.jpg --use-sahi --inference-size 3840
 
 # Custom blur with lower thresholds
 blur-cli image input.jpg --blur-type pixelate --blur-strength 30 \
-  --plate-threshold 0.3 --face-threshold 0.4
+  --confidence-threshold 0.4 --low-score-threshold 0.1
 
 # Specify output location
 blur-cli image input.jpg -o results/blurred.jpg
@@ -257,7 +257,7 @@ blur-cli image input.jpg -o results/blurred.jpg
 
 ### `video` - Process Videos
 
-Blur faces and license plates in video files.
+Blur detected objects (bike, head, person, plate, vehicle) in video files.
 
 ```bash
 blur-cli video INPUT [OPTIONS]

@@ -8,6 +8,7 @@ from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
+import imageio.v3 as iio
 import numpy as np
 import polars as pl
 
@@ -28,6 +29,8 @@ from ..io.video import get_video_info, iter_frame_batches
 from ..utils.progress import ProgressRateEstimator, format_progress_message
 
 DEFAULT_MODELS_DIR = get_detection_models_dir()
+
+logger = logging.getLogger("obscuro.detection")
 
 
 class BaseDetector:
@@ -51,7 +54,6 @@ class BaseDetector:
         self.progress_callback = progress_callback
         self.confidence_threshold = float(max(0.0, min(confidence_threshold, 1.0)))
         self.low_score_threshold = float(max(0.0, min(low_score_threshold, 1.0)))
-        self.logger = logging.getLogger("obscuro.detection")
         self.nms_iou_threshold = float(max(0.0, min(nms_iou_threshold, 1.0)))
         self.inference_size = max(int(inference_size), 256)
 
@@ -71,7 +73,7 @@ class BaseDetector:
 
         self.imgsz = int(math.ceil(self.training_size / 32) * 32)
         self.inference_size = max(self.inference_size, self.imgsz)
-        self.logger.info(
+        logger.info(
             f"Model training size inferred as {self.training_size}x{self.training_size} from filename '{model_stem}'"
         )
 
@@ -129,7 +131,7 @@ class BaseDetector:
                 allowed.add(int(identifier))
 
         if not allowed:
-            self.logger.warning(
+            logger.warning(
                 "Configured blur categories %s did not match known detector classes %s",
                 sorted(normalized),
                 sorted(self._class_name_by_id.values()),
@@ -217,8 +219,6 @@ class BaseDetector:
         suffix = path.suffix.lower()
         if suffix in {".jpg", ".jpeg", ".png", ".bmp", ".webp"}:
             # For image, just read and detect using RGB order
-            import imageio.v3 as iio
-
             try:
                 image = iio.imread(path)
             except Exception as exc:  # pragma: no cover - defensive
@@ -293,6 +293,10 @@ class BaseDetector:
         frame_shape: tuple[int, int] | None = None,
     ) -> list[dict[str, Any] | None]:
         return self.mask_manager.decode_masks_for_rows(rows, frame_shape)
+
+    def release_mask_proto(self, frame_id: int, tile_id: int | None = None) -> None:
+        """Release cached mask prototype to free memory."""
+        self.mask_manager.release_mask_proto(frame_id, tile_id)
 
     def clear_mask_cache(self) -> None:
         self.mask_manager.clear_mask_cache()
@@ -620,7 +624,7 @@ class FrameDetector(BaseDetector):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.logger.info("SAHI inference disabled; using full-frame pipeline")
+        logger.info("SAHI inference disabled; using full-frame pipeline")
 
     def _detect_from_array(self, image: np.ndarray) -> pl.DataFrame:
         self._report_progress(0, "Processing single image")
@@ -682,7 +686,7 @@ class FrameDetector(BaseDetector):
         return pl.concat(batch_results, rechunk=True) if batch_results else self._empty_result_df()
 
     def _detect_from_path(self, path: Path) -> pl.DataFrame:
-        self.logger.debug("Starting detection for %s", path)
+        logger.debug("Starting detection for %s", path)
         self._report_progress(0, "Starting")
 
         results: list[pl.DataFrame] = []
@@ -713,7 +717,7 @@ class FrameDetector(BaseDetector):
             frame_indices = np.array([idx for idx, _ in batch], dtype=np.int64)
             frames_bgr = [frame for _, frame in batch]
 
-            self.logger.debug(
+            logger.debug(
                 "Processing batch %d (frames %s-%s)",
                 processed_batches + 1,
                 int(frame_indices[0]),
@@ -752,11 +756,11 @@ class FrameDetector(BaseDetector):
             batch_start_time = time.perf_counter()
 
         if processed_frames == 0:
-            self.logger.warning("No frames to process")
+            logger.warning("No frames to process")
             self._report_progress(100, "No frames to process")
             return self._empty_result_df()
 
-        self.logger.debug("Detection complete")
+        logger.debug("Detection complete")
         self._report_progress(100, "Complete")
         df = pl.concat(results, rechunk=True) if results else self._empty_result_df()
         return df

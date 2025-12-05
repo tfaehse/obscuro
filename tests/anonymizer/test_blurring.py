@@ -231,8 +231,8 @@ class TestBlurrerImageMethods:
         # Should return original image when no detections
         assert np.array_equal(result, test_image)
 
-    @patch("cv2.imread")
-    @patch("cv2.imwrite")
+    @patch("anonymizer.blurring.iio.imread")
+    @patch("anonymizer.blurring.iio.imwrite")
     def test_blur_image_file_actual_calls(self, mock_imwrite, mock_imread):
         """Test blur_image_file method with actual file operations."""
         from pathlib import Path
@@ -258,12 +258,12 @@ class TestBlurrerImageMethods:
         blurrer.blur_image_file(input_path, detections, output_path)
 
         # Verify file I/O calls
-        mock_imread.assert_called_once_with(str(input_path))
+        mock_imread.assert_called_once_with(input_path)
         mock_imwrite.assert_called_once()
 
         # Check that imwrite was called with correct output path
         call_args = mock_imwrite.call_args
-        assert call_args[0][0] == str(output_path)  # First arg is output path
+        assert call_args[0][0] == output_path  # First arg is output path
         assert isinstance(call_args[0][1], np.ndarray)  # Second arg is image array
 
 

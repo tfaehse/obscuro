@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
 import polars as pl
@@ -12,9 +12,7 @@ from sahi.prediction import ObjectPrediction
 from sahi.slicing import slice_image
 
 from anonymizer.constants import DEFAULT_CATEGORY_MAPPING
-
-if TYPE_CHECKING:
-    from .detection import Detector
+from anonymizer.detection.core import BaseDetector
 
 
 class SahiOnnxDetectionModel(DetectionModel):
@@ -22,7 +20,7 @@ class SahiOnnxDetectionModel(DetectionModel):
 
     def __init__(
         self,
-        detector: Detector,
+        detector: BaseDetector,
         category_mapping: dict[str, str] | None = None,
         **kwargs: Any,
     ):

@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import cv2
+import imageio.v3 as iio
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
@@ -182,11 +182,9 @@ def test_blur_frame_success():
         mock_get_gpu.return_value = mock_anon
 
         img = np.ones((10, 10, 3), dtype=np.uint8) * 255
-        _, buf = cv2.imencode(".jpg", img)
+        buf = iio.imwrite("<bytes>", img, extension=".jpg")
 
-        response = client.post(
-            "/blur/frame", files={"input": ("test.jpg", buf.tobytes(), "image/jpeg")}
-        )
+        response = client.post("/blur/frame", files={"input": ("test.jpg", buf, "image/jpeg")})
 
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("image/jpeg")
@@ -209,11 +207,9 @@ def test_blur_frame_falls_back_to_cpu_when_gpu_busy():
         mock_get_cpu.return_value = mock_cpu_anon
 
         img = np.ones((10, 10, 3), dtype=np.uint8) * 255
-        _, buf = cv2.imencode(".jpg", img)
+        buf = iio.imwrite("<bytes>", img, extension=".jpg")
 
-        response = client.post(
-            "/blur/frame", files={"input": ("test.jpg", buf.tobytes(), "image/jpeg")}
-        )
+        response = client.post("/blur/frame", files={"input": ("test.jpg", buf, "image/jpeg")})
 
         assert response.status_code == 200
         mock_get_gpu.assert_not_called()
@@ -363,3 +359,34 @@ def test_is_gpu_busy_reports_status():
         assert serve.is_gpu_busy() is True
     finally:
         serve.model_lock.release()
+
+
+def test_reset_backend_clears_state():
+    """Test that /reset endpoint clears jobs and resets anonymizers."""
+    # Setup state
+    job_id = "stuck_job"
+    serve.video_jobs[job_id] = {
+        "status": "running",
+        "job_id": job_id,
+        "updated_at": time.time(),
+    }
+    serve.cancel_events[job_id] = serve.threading.Event()
+
+    # Mock anonymizer instances
+    serve.gpu_anonymizer_instance = Mock()
+    serve.cpu_anonymizer_instance = Mock()
+    serve.active_gpu_model_key = "some_key"
+
+    # Call reset
+    response = client.post("/blur/reset")
+    assert response.status_code == 200
+    assert response.json()["message"] == "Backend reset successfully"
+
+    # Verify state cleared
+    with serve.video_jobs_lock:
+        assert len(serve.video_jobs) == 0
+        assert len(serve.cancel_events) == 0
+
+    assert serve.gpu_anonymizer_instance is None
+    assert serve.cpu_anonymizer_instance is None
+    assert serve.active_gpu_model_key is None

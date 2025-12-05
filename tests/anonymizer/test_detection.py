@@ -123,7 +123,7 @@ class TestDetector:
 
     def test_model_size_inference_square(self):
         """Test model size inference from square imgsz prefix."""
-        model_path = Path("1280_nano.onnx")
+        model_path = Path("1280_nano_seg.onnx")
 
         with (
             patch("anonymizer.detection.model.ort.InferenceSession"),
@@ -161,24 +161,24 @@ class TestDetector:
             )
         ]
 
-        # Mock the category mapping to include "face" at index 1
+        # Mock the category mapping to include "head" at index 1
         with patch(
-            "anonymizer.detection.core.DEFAULT_CATEGORY_MAPPING", {"0": "person", "1": "face"}
+            "anonymizer.detection.core.DEFAULT_CATEGORY_MAPPING", {"0": "person", "1": "head"}
         ):
             detector, _ = _build_detector_with_session(
                 session_output=session_output,
-                categories_to_blur=["face"],
+                categories_to_blur=["head"],
             )
             # Force re-initialization of mapping dependent attributes
-            detector.category_mapping = {"0": "person", "1": "face"}
-            detector._class_name_by_id = {0: "person", 1: "face"}
-            detector._allowed_class_ids = detector._resolve_allowed_class_ids(["face"])
+            detector.category_mapping = {"0": "person", "1": "head"}
+            detector._class_name_by_id = {0: "person", 1: "head"}
+            detector._allowed_class_ids = detector._resolve_allowed_class_ids(["head"])
 
             meta = {"scale": (1.0, 1.0), "pad": (0.0, 0.0), "original_shape": (640, 640)}
             df = detector._postprocess(session_output, [meta])
 
             nms_results = df.filter(pl.col("is_confident"))
-            # After filtering by category, expect only class 1 (face)
+            # After filtering by category, expect only class 1 (head)
             assert set(nms_results["object_class"].to_list()) == {1}
 
     def test_sahi_matches_standard_detection(self, sample_image):
@@ -272,7 +272,7 @@ class TestDetectorIntegration:
 
     def test_full_detection_pipeline(self):
         """Test that the full detection pipeline can be instantiated."""
-        model_path = Path("1280_nano.onnx")
+        model_path = Path("1280_nano_seg.onnx")
 
         with (
             patch("anonymizer.detection.model.ort.InferenceSession"),

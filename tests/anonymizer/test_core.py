@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import numpy as np
 import polars as pl
@@ -14,6 +14,7 @@ import pytest
 
 from anonymizer.config import AnonymizerConfig, BlurType, ModelConfig, TrackerType
 from anonymizer.core import OFFLINE_LINK_DEBUG_COLOR, Anonymizer
+from anonymizer.detection.core import BaseDetector
 from anonymizer.paths import get_models_dir
 from anonymizer.tracking.common import TrackObservation, TrackState
 
@@ -213,6 +214,21 @@ class TestAnonymizer:
         assert anonymizer.blurrer is not None
 
 
+@pytest.fixture
+def detector(mock_model_path):
+    """Create a detector instance for testing."""
+    with (
+        patch("anonymizer.detection.core.ModelLoader"),
+        patch("onnxruntime.InferenceSession"),
+        patch("onnxruntime.get_available_providers", return_value=["CPUExecutionProvider"]),
+    ):
+        det = BaseDetector(model_path=mock_model_path)
+        det.session = Mock()
+        det.session.get_inputs.return_value = [Mock(name="images", shape=(1, 3, 640, 640))]
+        det.session.get_outputs.return_value = [Mock(name="output0"), Mock(name="output1")]
+        return det
+
+
 class TestAnonymizerMethods:
     """Test Anonymizer public methods."""
 
@@ -297,6 +313,62 @@ class TestAnonymizerMethods:
         assert anonymizer.config.detection.low_score_threshold == 0.05
         anonymizer.detector.set_thresholds.assert_called_once_with(None, 0.05)
         anonymizer.tracker.set_thresholds.assert_called_once_with(None, 0.05)  # type: ignore[attr-defined]
+
+    def test_postprocess_mask_fusion(self, detector):
+        # Mock batched_nms to return two boxes fused into one
+        # Box 0 keeps, Box 1 is suppressed by Box 0
+        with patch("anonymizer.detection.core.batched_nms") as mock_nms:
+            mock_nms.return_value = (np.array([0]), [[0, 1]])
+
+            # Setup mock outputs
+            # 2 detections, both with masks
+            detections = np.zeros((1, 8400, 116), dtype=np.float32)
+            # Box 0
+            detections[0, 0, :4] = [10, 10, 50, 50]  # xywh
+            detections[0, 0, 4] = 0.9  # score
+            detections[0, 0, 4 + 0] = 0.9  # class 0 score
+            # Box 1
+            detections[0, 1, :4] = [12, 12, 52, 52]
+            detections[0, 1, 4] = 0.8
+            detections[0, 1, 4 + 0] = 0.8
+
+            # Mask protos (dummy)
+            mask_proto = np.zeros((1, 32, 160, 160), dtype=np.float32)
+
+            # Mock mask coeffs in detections (last 32 channels)
+            detections[0, 0, -32:] = 0.1
+            detections[0, 1, -32:] = 0.2
+
+            # Transpose to (B, C, N) as expected by _postprocess before internal transpose
+            outputs = [detections.transpose(0, 2, 1), mask_proto]
+
+            metas = [
+                {
+                    "original_shape": (480, 640),
+                    "scale": (1.0, 1.0),
+                    "pad": (0.0, 0.0),
+                    "tile_offset": (0.0, 0.0),
+                    "global_shape": (480, 640),
+                }
+            ]
+
+            # Mock MaskManager
+            detector.mask_manager = MagicMock()
+            detector.mask_manager.register_mask_payload.return_value = 123
+
+            df = detector._postprocess(outputs, metas)
+
+            assert len(df) == 1
+            assert df["mask"][0] == 123
+
+            # Verify register_mask_payload was called with fused ingredients
+            call_args = detector.mask_manager.register_mask_payload.call_args
+            assert call_args is not None
+            payload = call_args[0][0]
+            assert payload["format"] == "coeff_ingredients"
+            assert len(payload["ingredients"]) == 2
+            assert payload["ingredients"][0]["tile_id"] == 0  # From box 0
+            assert payload["ingredients"][1]["tile_id"] == 0  # From box 1
 
     @patch("anonymizer.core.Detector")
     @patch("anonymizer.core.TrackerFactory")

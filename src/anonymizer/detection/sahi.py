@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Iterable
 from pathlib import Path
@@ -29,6 +30,9 @@ class SahiDetector(BaseDetector):
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
+        # Ensure logger is available even if BaseDetector initialisation changes order
+        if not hasattr(self, "logger"):
+            self.logger = logging.getLogger("obscuro.detection.sahi")
         self.sahi_overlap_ratio = float(max(0.0, min(sahi_overlap_ratio, 0.99)))
         self._sahi_model: SahiOnnxDetectionModel | None = None
         self._category_mapping = dict(self.category_mapping)

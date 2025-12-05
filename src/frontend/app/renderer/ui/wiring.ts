@@ -3,6 +3,7 @@ import { apiService } from '../services/api.js';
 import type { PreviewUI } from './preview.js';
 import type { ProgressUI } from './progress.js';
 import { ConfigController } from './components/config-controller.js';
+import { Toast } from './components/toast.js';
 
 export class WiringUI {
   private readonly previewUI: PreviewUI;
@@ -46,6 +47,11 @@ export class WiringUI {
     cancelButton?.addEventListener('click', () => {
       void this.cancelProcessing();
     });
+
+    const resetButton = document.getElementById('reset-backend') as HTMLButtonElement | null;
+    resetButton?.addEventListener('click', () => {
+      void this.resetBackend();
+    });
   }
 
   private setupStoreSubscriptions(): void {
@@ -55,7 +61,7 @@ export class WiringUI {
     });
 
     store.on('processing:error', ({ error }) => {
-      alert(`Processing failed: ${error}`);
+      Toast.show(`Processing failed: ${error}`, 'error');
     });
 
     store.on('config:updated', () => {
@@ -102,7 +108,7 @@ export class WiringUI {
   private async startProcessing(): Promise<void> {
     const currentVideo = store.getCurrentVideo();
     if (!currentVideo) {
-      alert('Please select a video file first.');
+      Toast.show('Please select a video file first.', 'info');
       return;
     }
 
@@ -127,7 +133,7 @@ export class WiringUI {
       );
     } catch (error) {
       console.error('Failed to start processing:', error);
-      alert(`Failed to start processing: ${error}`);
+      Toast.show(`Failed to start processing: ${error}`, 'error');
     }
   }
 
@@ -140,7 +146,24 @@ export class WiringUI {
       store.cancelProcessing();
     } catch (error) {
       console.error('Failed to cancel job:', error);
-      alert(`Failed to cancel processing: ${error}`);
+      Toast.show(`Failed to cancel processing: ${error}`, 'error');
+    }
+  }
+
+  private async resetBackend(): Promise<void> {
+    if (!confirm('Are you sure you want to reset the backend? This will stop all running jobs.')) {
+      return;
+    }
+
+    try {
+      await apiService.resetBackend();
+      store.cancelProcessing(); // Clear local state
+      Toast.show('Backend reset successfully', 'success');
+      // Force reload models/config to ensure sync
+      void this.loadInitialData();
+    } catch (error) {
+      console.error('Failed to reset backend:', error);
+      Toast.show(`Failed to reset backend: ${error}`, 'error');
     }
   }
 

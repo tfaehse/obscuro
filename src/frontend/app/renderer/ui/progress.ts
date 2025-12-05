@@ -5,12 +5,15 @@ export class ProgressUI {
   private statusText: HTMLElement;
   private startButton: HTMLButtonElement;
   private cancelButton: HTMLButtonElement;
+  private resetButton: HTMLButtonElement;
+  private lastError: string | null = null;
 
   constructor() {
     this.progressBar = document.getElementById('progress-bar') as HTMLProgressElement;
     this.statusText = document.getElementById('progress-status') as HTMLElement;
     this.startButton = document.getElementById('start-processing') as HTMLButtonElement;
     this.cancelButton = document.getElementById('cancel-processing') as HTMLButtonElement;
+    this.resetButton = document.getElementById('reset-backend') as HTMLButtonElement;
 
     this.setupStoreSubscriptions();
     this.updateUIState();
@@ -26,6 +29,7 @@ export class ProgressUI {
     });
 
     store.on('processing:started', () => {
+      this.lastError = null;
       this.updateUIState();
     });
 
@@ -42,6 +46,7 @@ export class ProgressUI {
     });
 
     store.on('processing:error', ({ error }) => {
+      this.lastError = error;
       this.showError(error);
       this.updateUIState();
     });
@@ -53,12 +58,19 @@ export class ProgressUI {
 
     // Update button states
     this.startButton.disabled = !hasVideo || isProcessing;
-  // Pause removed – only start/cancel flows supported
+    // Pause removed – only start/cancel flows supported
 
     if (isProcessing) {
       this.cancelButton.classList.remove('hidden');
     } else {
       this.cancelButton.classList.add('hidden');
+    }
+
+    // Show reset button if there was an error
+    if (this.lastError) {
+      this.resetButton?.classList.remove('hidden');
+    } else {
+      this.resetButton?.classList.add('hidden');
     }
 
     // Reset progress if not processing

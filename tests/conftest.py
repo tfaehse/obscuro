@@ -85,7 +85,7 @@ def sample_video_frames():
 def sample_detections():
     """Create sample detection data."""
     return {
-        "faces": [
+        "heads": [
             {"x": 100, "y": 100, "width": 50, "height": 50, "confidence": 0.8},
             {"x": 200, "y": 150, "width": 45, "height": 45, "confidence": 0.9},
         ],

@@ -140,12 +140,12 @@ class TestBlurImage:
 
     @patch("blur_cli.cli.Path.exists", return_value=True)
     @patch("blur_cli.cli.Path.is_file", return_value=True)
-    @patch("cv2.imread", return_value=None)
+    @patch("blur_cli.cli.iio.imread", side_effect=Exception("load error"))
     @patch("blur_cli.cli.get_config_for_args")
     def test_blur_image_cannot_load_image(
         self, mock_get_config, mock_imread, mock_is_file, mock_exists
     ):
-        """Test blur_image when cv2 cannot load the image."""
+        """Test blur_image when the image cannot be loaded."""
         args = Mock()
         args.input = "/path/to/test.jpg"
         args.output = None
@@ -155,8 +155,8 @@ class TestBlurImage:
 
     @patch("blur_cli.cli.Path.exists", return_value=True)
     @patch("blur_cli.cli.Path.is_file", return_value=True)
-    @patch("cv2.imread")
-    @patch("cv2.imwrite", return_value=False)
+    @patch("blur_cli.cli.iio.imread")
+    @patch("blur_cli.cli.iio.imwrite", side_effect=Exception("save error"))
     @patch("blur_cli.cli.get_config_for_args")
     @patch("blur_cli.cli.Anonymizer")
     def test_blur_image_cannot_save_result(
@@ -168,7 +168,7 @@ class TestBlurImage:
         mock_is_file,
         mock_exists,
     ):
-        """Test blur_image when cv2 cannot save the result."""
+        """Test blur_image when saving the result fails."""
         args = Mock()
         args.input = "/path/to/test.jpg"
         args.output = None
@@ -186,8 +186,8 @@ class TestBlurImage:
 
     @patch("blur_cli.cli.Path.exists", return_value=True)
     @patch("blur_cli.cli.Path.is_file", return_value=True)
-    @patch("cv2.imread")
-    @patch("cv2.imwrite", return_value=True)
+    @patch("blur_cli.cli.iio.imread")
+    @patch("blur_cli.cli.iio.imwrite")
     @patch("blur_cli.cli.get_config_for_args")
     @patch("blur_cli.cli.Anonymizer")
     def test_blur_image_success(
@@ -225,8 +225,8 @@ class TestBlurImage:
 
     @patch("blur_cli.cli.Path.exists", return_value=True)
     @patch("blur_cli.cli.Path.is_file", return_value=True)
-    @patch("cv2.imread")
-    @patch("cv2.imwrite", return_value=True)
+    @patch("blur_cli.cli.iio.imread")
+    @patch("blur_cli.cli.iio.imwrite")
     @patch("blur_cli.cli.get_config_for_args")
     @patch("blur_cli.cli.Anonymizer")
     def test_blur_image_auto_output_filename(
@@ -260,7 +260,7 @@ class TestBlurImage:
 
     @patch("blur_cli.cli.Path.exists", return_value=True)
     @patch("blur_cli.cli.Path.is_file", return_value=True)
-    @patch("cv2.imread", side_effect=Exception("Test error"))
+    @patch("blur_cli.cli.iio.imread", side_effect=Exception("Test error"))
     @patch("blur_cli.cli.get_config_for_args")
     def test_blur_image_exception_handling(
         self, mock_get_config, mock_imread, mock_is_file, mock_exists
@@ -430,7 +430,7 @@ class TestGetConfigForArgs:
         args.blur_strength = 15
         args.confidence_threshold = 0.5
         args.low_score_threshold = 0.2
-        args.blur_classes = "license_plate,vehicle"
+        args.blur_classes = "plate,vehicle"
         args.tracker_params = '{"distance_gate":0.55}'
         args.tracker = None
         args.use_sahi = True
@@ -449,7 +449,7 @@ class TestGetConfigForArgs:
         assert result.blur.strength == 15
         assert result.detection.confidence_threshold == 0.5
         assert result.detection.low_score_threshold == 0.2
-        assert result.detection.classes_to_blur == ["license_plate", "vehicle"]
+        assert result.detection.classes_to_blur == ["plate", "vehicle"]
         mock_set_config.assert_called_once()
         assert result.detection.use_sahi is True
         assert result.detection.sahi_overlap_ratio == 0.3

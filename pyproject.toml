@@ -39,6 +39,7 @@ dependencies = [
   "onnx>=1.16.0",
   "onnxruntime>=1.18.1",
   "platformdirs>=4.2.2",
+  "imageio>=2.34.0",
   "opencv-python>=4.10.0.84",
   "polars>=1.10.0",
   "fastapi>=0.111.0",

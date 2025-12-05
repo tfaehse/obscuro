@@ -2,7 +2,7 @@
 Anonymizer core package for dashcam video anonymization.
 
 This package provides functionality for detecting, tracking, and blurring
-faces and license plates in dashcam videos.
+bikes, heads, people, plates, and vehicles in dashcam videos.
 """
 
 from .config import (

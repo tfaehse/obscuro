@@ -4,6 +4,7 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 
 from anonymizer.config import TrackerParams
 
@@ -225,8 +226,6 @@ class FusedTracker(BaseTracker):
 
         row_ind = col_ind = np.array([], dtype=int)
         if cost_matrix.size:
-            from scipy.optimize import linear_sum_assignment
-
             row_ind, col_ind = linear_sum_assignment(cost_matrix)
 
         matches: list[tuple[int, int]] = []

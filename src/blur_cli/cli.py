@@ -30,6 +30,8 @@ from anonymizer.config import (
 from anonymizer.paths import get_detection_models_dir
 from blur_cli.logging_setup import get_progress_logger, log_with_extra, setup_logging
 
+logger = logging.getLogger("obscuro.cli")
+
 
 def apply_model_constraints_with_notice(config: AnonymizerConfig, logger: logging.Logger) -> None:
     """Ensure config honors model-specific limits and inform the user."""
@@ -44,8 +46,7 @@ def apply_model_constraints_with_notice(config: AnonymizerConfig, logger: loggin
 
 
 def blur_image(args):
-    """Blur faces and license plates in a single image."""
-    logger = logging.getLogger("obscuro.cli")
+    """Blur detected objects (bike, head, person, plate, vehicle) in a single image."""
     progress_logger = get_progress_logger()
 
     input_path = Path(args.input)
@@ -128,8 +129,7 @@ def blur_image(args):
 
 
 def blur_video(args):
-    """Blur faces and license plates in a video."""
-    logger = logging.getLogger("obscuro.cli")
+    """Blur detected objects (bike, head, person, plate, vehicle) in a video."""
     progress_logger = get_progress_logger()
 
     input_path = Path(args.input)
@@ -313,7 +313,6 @@ def get_config_for_args(args) -> AnonymizerConfig:
 
 def create_config(args):
     """Create a configuration template file."""
-    logger = logging.getLogger("obscuro.cli")
 
     output_path = Path(args.output) if args.output else Path("blur_config.toml")
 
@@ -338,7 +337,6 @@ def _get_models_dir() -> Path:
 
 def list_models(download_url: str | None = None, desired_name: str | None = None):
     """List available models, optionally downloading a new checkpoint."""
-    logger = logging.getLogger("obscuro.cli")
 
     models_path = _get_models_dir()
     if download_url:
@@ -414,7 +412,7 @@ def list_models(download_url: str | None = None, desired_name: str | None = None
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Blur faces and license plates in images and videos",
+        description="Blur detected objects (bike, head, person, plate, vehicle) in images and videos",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -466,12 +464,12 @@ Examples:
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # Image command
-    image_parser = subparsers.add_parser("image", help="Blur faces and plates in an image")
+    image_parser = subparsers.add_parser("image", help="Blur detections in an image")
     image_parser.add_argument("input", help="Input image file")
     image_parser.add_argument("-o", "--output", help="Output image file (default: auto-generated)")
 
     # Video command
-    video_parser = subparsers.add_parser("video", help="Blur faces and plates in a video")
+    video_parser = subparsers.add_parser("video", help="Blur detections in a video")
     video_parser.add_argument("input", help="Input video file")
     video_parser.add_argument("-o", "--output", help="Output video file (default: auto-generated)")
 
@@ -496,7 +494,7 @@ Examples:
         )
         subparser.add_argument(
             "--blur-classes",
-            help="Comma-separated detector classes to blur (e.g., 'license_plate,face')",
+            help="Comma-separated detector classes to blur (e.g., 'plate,head,person')",
         )
         subparser.add_argument(
             "--embedding-similarity-gate",
