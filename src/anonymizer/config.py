@@ -16,7 +16,7 @@ from typing import Any, Literal, cast
 import toml
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
-from anonymizer.constants import DEFAULT_SEGMENTATION_CLASSES
+from anonymizer.constants import DEFAULT_BLUR_CATEGORIES
 from anonymizer.paths import (
     DEFAULT_MODEL_NAME,
     ensure_default_model_present,
@@ -112,8 +112,8 @@ class DetectionConfig(BaseModel):
         description="Fractional overlap for SAHI tiles (0-1)",
     )
     classes_to_blur: list[str] = Field(
-        default_factory=lambda: list(DEFAULT_SEGMENTATION_CLASSES),
-        description="Names of detector classes to blur (default matches the ONNX segmentation model)",
+        default_factory=lambda: list(DEFAULT_BLUR_CATEGORIES),
+        description="Names of detector classes to blur (default matches model metadata)",
     )
 
     model_config = ConfigDict(validate_assignment=True)
@@ -545,7 +545,7 @@ batch_size = 8
 # use_sahi = false
 # inference_size = 1920
 # sahi_overlap_ratio = 0.2
-classes_to_blur = ["person", "car", "bus", "motorcycle", "truck"]
+classes_to_blur = ["plate", "head"]
 
 [tracking]
 type = "bytetrack"

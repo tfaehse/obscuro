@@ -15,7 +15,7 @@ low_score_threshold = 0.1
 
 [model]
 # Use the bundled default model or point to a custom checkpoint.
-name = "1280_nano"
+name = "1280_nano_seg"
 
 [tracking]
 type = "bytetrack"

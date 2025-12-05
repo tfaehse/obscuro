@@ -807,12 +807,12 @@
 
           <section class="tab-panel" data-panel="detection" hidden>
             <div class="control">
-              <label for="plate-threshold">Plate threshold <span id="plate-threshold-value" class="chip" style="text-transform:none;">0.5</span></label>
-              <input id="plate-threshold" type="range" min="0" max="1" step="0.01" value="0.5" />
+              <label for="detection-threshold">Detection threshold <span id="detection-threshold-value" class="chip" style="text-transform:none;">0.5</span></label>
+              <input id="detection-threshold" type="range" min="0" max="1" step="0.01" value="0.5" />
             </div>
             <div class="control">
-              <label for="face-threshold">Face threshold <span id="face-threshold-value" class="chip" style="text-transform:none;">0.5</span></label>
-              <input id="face-threshold" type="range" min="0" max="1" step="0.01" value="0.5" />
+              <label for="low-score-threshold">Low score threshold <span id="low-score-threshold-value" class="chip" style="text-transform:none;">0.1</span></label>
+              <input id="low-score-threshold" type="range" min="0" max="1" step="0.01" value="0.1" />
             </div>
             <div class="control">
               <label for="batch-size">Batch size <span id="batch-size-value" class="chip" style="text-transform:none;">8</span></label>
@@ -830,6 +830,13 @@
             <div class="control">
               <label for="sahi-overlap">SAHI overlap <span id="sahi-overlap-value" class="chip" style="text-transform:none;">0.20</span></label>
               <input id="sahi-overlap" type="range" min="0" max="0.9" step="0.01" value="0.2" />
+            </div>
+            <div class="control">
+              <div class="control-header">
+                <label>Classes to blur</label>
+                <button id="reset-classes" class="btn ghost" type="button">Reset defaults</button>
+              </div>
+              <div id="class-toggle-list" class="chip-row"></div>
             </div>
           </section>
 
@@ -850,14 +857,6 @@
             <div class="control" data-scope="dummy">
               <label for="tracker-ema-alpha">EMA α <span id="tracker-ema-alpha-value" class="chip" style="text-transform:none;">0.6</span></label>
               <input id="tracker-ema-alpha" type="range" min="0" max="1" step="0.01" value="0.6" />
-            </div>
-            <div class="control" data-scope="bytetrack,botsort">
-              <label for="track-high-thresh">High score <span id="track-high-thresh-value" class="chip" style="text-transform:none;">0.6</span></label>
-              <input id="track-high-thresh" type="range" min="0" max="1" step="0.01" value="0.6" />
-            </div>
-            <div class="control" data-scope="bytetrack,botsort">
-              <label for="track-low-thresh">Low score <span id="track-low-thresh-value" class="chip" style="text-transform:none;">0.2</span></label>
-              <input id="track-low-thresh" type="range" min="0" max="1" step="0.01" value="0.2" />
             </div>
             <div class="control" data-scope="bytetrack,botsort,hybrid_sot">
               <label for="track-distance-gate">Distance gate <span id="track-distance-gate-value" class="chip" style="text-transform:none;">0.4</span></label>

@@ -1,0 +1,33 @@
+# Debug Configuration
+# Optimized for debugging with visual output and low thresholds
+
+# Global settings
+debug = true
+log_level = "DEBUG"
+
+[blur]
+strength = 15
+type = "debug"  # Shows bounding boxes instead of blurring
+
+[detection]
+batch_size = 1  # Process one frame at a time for easier debugging
+confidence_threshold = 0.3
+low_score_threshold = 0.1
+
+[model]
+# Override with custom model path when needed
+# For this config, use --model flag to specify yolo11n-seg.onnx
+name = "1280_nano_seg"
+
+[tracking]
+type = "dummy"  # No tracking for single image debugging
+use_offline_linker = false
+
+[tracking.params]
+bbox_dilate_pct = 0.15
+ema_alpha = 0.6
+temporal_smooth_alpha = 0.7
+
+[video]
+codec = "h264"
+quality = 28

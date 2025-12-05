@@ -113,10 +113,12 @@ const TRACKER_PRESETS: Record<string, TrackerParams> = {
 };
 
 export class ConfigController {
+  private availableClasses: string[] = [];
+  private defaultBlurClasses: string[] = [];
   private readonly valueDisplayIds = [
     'blur-strength',
-    'plate-threshold',
-    'face-threshold',
+    'detection-threshold',
+    'low-score-threshold',
     'batch-size',
     'inference-size',
     'sahi-overlap',
@@ -138,8 +140,8 @@ export class ConfigController {
     this.bindSectionField('blur-type', 'blur', 'type', v => v as any);
     this.bindSectionField('blur-strength', 'blur', 'strength', v => parseInt(String(v), 10));
 
-    this.bindSectionField('plate-threshold', 'detection', 'confidence_threshold', v => parseFloat(String(v)));
-    this.bindSectionField('face-threshold', 'detection', 'low_score_threshold', v => parseFloat(String(v)));
+    this.bindSectionField('detection-threshold', 'detection', 'confidence_threshold', v => parseFloat(String(v)));
+    this.bindSectionField('low-score-threshold', 'detection', 'low_score_threshold', v => parseFloat(String(v)));
     this.bindSectionField('batch-size', 'detection', 'batch_size', v => parseInt(String(v), 10));
     this.bindSectionField('use-sahi', 'detection', 'use_sahi', v => Boolean(v));
     this.bindSectionField('inference-size', 'detection', 'inference_size', v => parseInt(String(v), 10));
@@ -172,6 +174,7 @@ export class ConfigController {
     this.bindGlobalCheckbox('debug-mode', 'debug');
     this.bindGlobalSelect('log-level', 'log_level');
 
+    this.bindClassToggles();
     this.setupQualityOverride();
     this.attachValueBadgeListeners();
     this.setupModelManager();
@@ -203,6 +206,9 @@ export class ConfigController {
 
     const current = store.getConfig();
     const detectionBatch = options.detection.current_batch_size ?? current.detection.batch_size;
+    this.availableClasses = options.detection.available_classes ?? [];
+    this.defaultBlurClasses = options.detection.default_blur_classes ?? [];
+    const selectedClasses = options.detection.current_classes ?? current.detection.classes_to_blur;
 
     store.updateConfig({
       model: { name: options.model.current },
@@ -214,7 +220,7 @@ export class ConfigController {
         use_sahi: options.detection.use_sahi ?? current.detection.use_sahi,
         inference_size: options.detection.current_inference_size ?? current.detection.inference_size,
         sahi_overlap_ratio: options.detection.current_sahi_overlap ?? current.detection.sahi_overlap_ratio,
-        classes_to_blur: options.detection.current_classes ?? current.detection.classes_to_blur,
+        classes_to_blur: selectedClasses,
       },
       tracking: {
         type: options.tracking.current_type as any,
@@ -228,6 +234,7 @@ export class ConfigController {
       debug: options.global.current_debug,
       log_level: options.global.current_log_level,
     });
+    this.renderClassToggles(this.availableClasses, selectedClasses, this.defaultBlurClasses);
   }
 
   renderModels(models: ModelInfo[]): void {
@@ -299,18 +306,34 @@ export class ConfigController {
       item.appendChild(actions);
       list.appendChild(item);
     }
+
+    const active = models.find(model => model.name === currentConfig.model.name);
+    if (active?.metadata) {
+      this.availableClasses = active.metadata.classes ?? this.availableClasses;
+      this.defaultBlurClasses = active.metadata.default_blur ?? this.defaultBlurClasses;
+      this.renderClassToggles(
+        this.availableClasses,
+        currentConfig.detection.classes_to_blur,
+        this.defaultBlurClasses,
+      );
+    }
   }
 
   sync(config: AnonymizerConfig): void {
     this.setValue('model-select', config.model.name);
     this.setValue('blur-type', config.blur.type);
     this.setValue('blur-strength', config.blur.strength);
-    this.setValue('plate-threshold', config.detection.confidence_threshold);
-    this.setValue('face-threshold', config.detection.low_score_threshold);
+    this.setValue('detection-threshold', config.detection.confidence_threshold);
+    this.setValue('low-score-threshold', config.detection.low_score_threshold);
     this.setValue('batch-size', config.detection.batch_size);
     this.setValue('use-sahi', config.detection.use_sahi);
     this.setValue('inference-size', config.detection.inference_size);
     this.setValue('sahi-overlap', config.detection.sahi_overlap_ratio);
+    this.renderClassToggles(
+      this.availableClasses,
+      config.detection.classes_to_blur,
+      this.defaultBlurClasses,
+    );
     this.updateBatchSizeLock(config.model.name);
     this.setValue('tracker-type', config.tracking.type);
     this.setValue('track-offline-linker', config.tracking.use_offline_linker);
@@ -552,6 +575,74 @@ export class ConfigController {
         uploadInput.value = '';
       }
     });
+  }
+
+  private bindClassToggles(): void {
+    const resetButton = document.getElementById('reset-classes');
+    resetButton?.addEventListener('click', () => {
+      this.updateBlurClasses(this.defaultBlurClasses);
+    });
+
+    const container = document.getElementById('class-toggle-list');
+    container?.addEventListener('change', () => {
+      this.updateBlurClasses(this.readSelectedClasses());
+    });
+  }
+
+  private renderClassToggles(
+    available: string[],
+    selected: string[],
+    defaults: string[],
+  ): void {
+    this.availableClasses = available ?? [];
+    this.defaultBlurClasses = defaults ?? [];
+
+    const container = document.getElementById('class-toggle-list');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const chosen = new Set(selected ?? []);
+    const fallbackToDefaults = chosen.size === 0 && this.defaultBlurClasses.length > 0;
+
+    for (const cls of this.availableClasses) {
+      const id = `class-toggle-${cls.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`;
+      const wrapper = document.createElement('label');
+      wrapper.className = 'chip-checkbox';
+
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.id = id;
+      input.dataset.className = cls;
+      input.checked = fallbackToDefaults ? this.defaultBlurClasses.includes(cls) : chosen.has(cls);
+
+      const span = document.createElement('span');
+      span.textContent = cls;
+
+      wrapper.appendChild(input);
+      wrapper.appendChild(span);
+      container.appendChild(wrapper);
+    }
+  }
+
+  private readSelectedClasses(): string[] {
+    const container = document.getElementById('class-toggle-list');
+    if (!container) return [];
+    const inputs = Array.from(
+      container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+    );
+    return inputs
+      .filter(input => input.checked)
+      .map(input => input.dataset.className || '')
+      .filter(Boolean);
+  }
+
+  private updateBlurClasses(classes: string[]): void {
+    const normalized = Array.from(new Set(classes ?? []));
+    const current = store.getConfig();
+    store.updateConfig({
+      detection: { ...current.detection, classes_to_blur: normalized },
+    });
+    this.renderClassToggles(this.availableClasses, normalized, this.defaultBlurClasses);
   }
 
   private isStaticBatchModel(name: string | null): boolean {

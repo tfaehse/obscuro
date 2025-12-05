@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 DEFAULT_SEGMENTATION_CLASSES = [
+    "bike",
+    "head",
     "person",
-    "car",
-    "bus",
-    "motorcycle",
-    "truck",
+    "plate",
+    "vehicle",
 ]
 
 DEFAULT_CATEGORY_MAPPING = {str(idx): name for idx, name in enumerate(DEFAULT_SEGMENTATION_CLASSES)}
 
-DEFAULT_BLUR_CATEGORIES: tuple[str, ...] = tuple(DEFAULT_SEGMENTATION_CLASSES)
+DEFAULT_BLUR_CATEGORIES: tuple[str, ...] = ("plate", "head")
 
 __all__ = [
     "DEFAULT_BLUR_CATEGORIES",

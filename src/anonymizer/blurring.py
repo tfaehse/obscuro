@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, ClassVar, TypedDict
 
 import cv2
+import imageio.v3 as iio
 import numpy as np
 import polars as pl
 
@@ -225,9 +226,9 @@ class Blurrer:
                            coordinates are expected to be relative (0-1).
         :param output_path: Path for the output image.
         """
-        image = cv2.imread(str(input_path))
+        image = iio.imread(input_path)
         processed = self._apply_detections_to_image(image, detections)
-        cv2.imwrite(str(output_path), processed)
+        iio.imwrite(output_path, processed)
 
     def blur_image(self, image: np.ndarray, detections: pl.DataFrame) -> np.ndarray:
         """

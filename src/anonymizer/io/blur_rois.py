@@ -16,7 +16,7 @@ def blur_rois(
     Apply blur to regions of interest using CPU processing.
 
     Args:
-        img: Input image as numpy array (BGR format)
+        img: Input image as numpy array (RGB format)
         rois: List of ROIs as (x, y, w, h) tuples in pixel coordinates
         blur_type: Type of blur ("gaussian", "pixelate", "blackout")
         blur_strength: Blur intensity

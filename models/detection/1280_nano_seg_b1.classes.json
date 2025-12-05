@@ -1,0 +1,13 @@
+{
+  "classes": [
+    "bike",
+    "head",
+    "person",
+    "plate",
+    "vehicle"
+  ],
+  "default_blur": [
+    "plate",
+    "head"
+  ]
+}

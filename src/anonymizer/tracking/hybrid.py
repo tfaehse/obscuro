@@ -156,12 +156,16 @@ class HybridSOTTracker(FusedTracker):
         params: TrackerParams | None = None,
         cancel_event=None,
         progress_callback=None,
+        confidence_threshold: float = 0.5,
+        low_score_threshold: float = 0.1,
     ) -> None:
         super().__init__(
             video_source,
             params=params,
             cancel_event=cancel_event,
             progress_callback=progress_callback,
+            confidence_threshold=confidence_threshold,
+            low_score_threshold=low_score_threshold,
         )
         self._current_low_conf: list[Detection] = []
         self._embedding_model = get_embedding_model()

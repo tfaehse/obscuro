@@ -14,8 +14,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
-import cv2
-import numpy as np
+import imageio.v3 as iio
 from fastapi import APIRouter, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
@@ -25,13 +24,13 @@ from starlette.background import BackgroundTask
 from anonymizer import Anonymizer, load_config
 from anonymizer.cancellation import CancellationException
 from anonymizer.config import AnonymizerConfig, ConfigLayers, set_config
+from anonymizer.model_metadata import load_model_metadata
 from anonymizer.paths import (
     DEFAULT_MODEL_NAME,
     IMMUTABLE_MODEL_NAMES,
     ensure_required_models_present,
     get_detection_models_dir,
 )
-from anonymizer.sahi_integration import DEFAULT_CATEGORY_MAPPING
 from anonymizer.tracking import TRACKER_FACTORY
 
 app = FastAPI()
@@ -153,6 +152,7 @@ def _list_model_files() -> list[dict[str, object]]:
                 "size_bytes": stat.st_size,
                 "modified_at": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
                 "immutable": path.stem in IMMUTABLE_MODEL_NAMES,
+                "metadata": load_model_metadata(path),
             }
         )
     return models
@@ -180,6 +180,7 @@ def get_model_key(anonymizer_config: AnonymizerConfig) -> str:
     """Generate a cache key; include tracker type so switching tracker reloads."""
     tracking_params = anonymizer_config.tracking.effective_params().model_dump()
     params_key = ",".join(f"{key}={tracking_params[key]}" for key in sorted(tracking_params.keys()))
+    blur_classes_key = ",".join(sorted(anonymizer_config.detection.classes_to_blur or []))
     return (
         f"{anonymizer_config.model.name}-"
         f"{anonymizer_config.blur.type.value}-"
@@ -191,7 +192,8 @@ def get_model_key(anonymizer_config: AnonymizerConfig) -> str:
         f"{anonymizer_config.detection.low_score_threshold}-"
         f"{int(anonymizer_config.detection.use_sahi)}-"
         f"{anonymizer_config.detection.inference_size}-"
-        f"{anonymizer_config.detection.sahi_overlap_ratio}"
+        f"{anonymizer_config.detection.sahi_overlap_ratio}-"
+        f"{blur_classes_key}"
     )
 
 
@@ -345,6 +347,17 @@ async def get_config_options():
         _ensure_active_model_valid()
 
     available_models = [m["name"] for m in models]
+    active_model_path = MODELS_DIR / f"{global_config.model.name}.onnx"
+    meta = load_model_metadata(active_model_path)
+    available_classes = meta.get("classes", [])
+    default_blur_classes = meta.get("default_blur", [])
+    current_classes = [
+        cls for cls in global_config.detection.classes_to_blur if cls in available_classes
+    ]
+    if not current_classes:
+        current_classes = list(default_blur_classes or available_classes)
+        global_config.detection.classes_to_blur = list(current_classes)
+        _refresh_global_config_cache()
 
     return {
         "model": {
@@ -368,8 +381,9 @@ async def get_config_options():
             "inference_size_range": [256, 8192],
             "current_sahi_overlap": global_config.detection.sahi_overlap_ratio,
             "sahi_overlap_range": [0.0, 0.99],
-            "available_classes": sorted(set(DEFAULT_CATEGORY_MAPPING.values())),
-            "current_classes": list(global_config.detection.classes_to_blur),
+            "available_classes": list(available_classes),
+            "current_classes": list(current_classes),
+            "default_blur_classes": list(default_blur_classes),
         },
         "tracking": {
             "types": sorted(TRACKER_FACTORY.keys()),
@@ -499,10 +513,10 @@ async def blur_frame(
     logger = logging.getLogger("obscuro.api")
     logger.debug("Frame blur request received")
     contents = await input.read()
-    np_arr = np.frombuffer(contents, np.uint8)
-    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-    if frame is None:
-        raise HTTPException(status_code=400, detail="Invalid image data")
+    try:
+        frame = iio.imread(contents)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid image data") from exc
 
     # Build effective config
     effective_config = build_effective_config(config, global_config)
@@ -519,8 +533,11 @@ async def blur_frame(
             anonymizer = get_or_create_gpu_anonymizer(effective_config, None, None)
             result = anonymizer.blur_image_array(frame)
 
-    _, encoded_img = cv2.imencode(".jpg", result)
-    return StreamingResponse(io.BytesIO(encoded_img.tobytes()), media_type="image/jpeg")
+    try:
+        encoded_img = iio.imwrite("<bytes>", result, extension=".jpg")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Failed to encode image") from exc
+    return StreamingResponse(io.BytesIO(encoded_img), media_type="image/jpeg")
 
 
 @router.post("/image_file")

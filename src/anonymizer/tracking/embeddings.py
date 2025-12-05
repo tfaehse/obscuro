@@ -60,12 +60,13 @@ class EmbeddingModel:
         self.input_w = int(shape[3]) if len(shape) > 3 and shape[3] not in (None, "None") else 224
         self._run = self.session.run
 
-    def embed(self, image_bgr: np.ndarray) -> np.ndarray:
-        """Compute an embedding for a BGR image patch."""
-        if image_bgr is None or image_bgr.size == 0:
+    def embed(self, image_rgb: np.ndarray) -> np.ndarray:
+        """Compute an embedding for an RGB image patch."""
+        if image_rgb is None or image_rgb.size == 0:
             raise ValueError("Empty image for embedding")
-        rgb = image_bgr[..., ::-1]  # BGR -> RGB
-        resized = cv2.resize(rgb, (self.input_w, self.input_h), interpolation=cv2.INTER_LINEAR)
+        resized = cv2.resize(
+            image_rgb, (self.input_w, self.input_h), interpolation=cv2.INTER_LINEAR
+        )
         arr = resized.astype(np.float32) / 255.0
         chw = np.transpose(arr, (2, 0, 1))
         batch = np.expand_dims(chw, 0)

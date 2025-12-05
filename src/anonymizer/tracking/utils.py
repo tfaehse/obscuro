@@ -4,36 +4,33 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-import cv2
 import numpy as np
 
 __all__ = [
     "clamp_bbox",
     "cosine_similarities",
     "crop_patch",
-    "prepare_frame_bgr",
+    "prepare_frame_rgb",
     "update_weighted_embedding",
 ]
 
 
-def prepare_frame_bgr(frame: np.ndarray | None) -> np.ndarray | None:
+def prepare_frame_rgb(frame: np.ndarray | None) -> np.ndarray | None:
     """
-    Normalize a decoded frame for OpenCV trackers: uint8, contiguous, 3-channel BGR.
+    Normalize a decoded frame for trackers: uint8, contiguous, 3-channel RGB.
 
-    Handles grayscale/BGRA inputs, clips dtype ranges, and enforces contiguity.
+    Handles grayscale/alpha inputs, clips dtype ranges, and enforces contiguity.
     """
     if frame is None:
         return None
     prepared = frame
     if prepared.ndim == 2:
-        prepared = cv2.cvtColor(prepared, cv2.COLOR_GRAY2BGR)
+        prepared = np.repeat(prepared[..., None], 3, axis=2)
     elif prepared.ndim == 3:
         channels = prepared.shape[2]
         if channels == 1:
-            prepared = cv2.cvtColor(prepared, cv2.COLOR_GRAY2BGR)
-        elif channels == 4:
-            prepared = cv2.cvtColor(prepared, cv2.COLOR_BGRA2BGR)
-        elif channels > 4:
+            prepared = np.repeat(prepared, 3, axis=2)
+        elif channels >= 3:
             prepared = prepared[:, :, :3]
 
     if prepared.dtype != np.uint8:

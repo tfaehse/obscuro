@@ -126,6 +126,12 @@ def batched_center_distance(
     boxes_b: Iterable[np.ndarray],
     sizes_b: Iterable[tuple[int, int] | None],
 ) -> np.ndarray:
+    """
+    Compute pairwise center distances between two sets of boxes using vectorized operations.
+
+    Returns a matrix of shape (len(boxes_a), len(boxes_b)) where element [i, j] is the
+    normalized Euclidean distance between the centers of box_a[i] and box_b[j].
+    """
     list_a = list(boxes_a)
     list_sizes_a = list(sizes_a)
     list_b = list(boxes_b)
@@ -134,6 +140,7 @@ def batched_center_distance(
     if not list_a or not list_b:
         return np.full((len(list_a), len(list_b)), float("inf"), dtype=float)
 
+    # Compute normalized centers for all boxes
     centers_a = [
         normalized_center(box, size) for box, size in zip(list_a, list_sizes_a, strict=False)
     ]
@@ -141,12 +148,39 @@ def batched_center_distance(
         normalized_center(box, size) for box, size in zip(list_b, list_sizes_b, strict=False)
     ]
 
+    # Filter out None centers and track their indices
+    valid_a = [(i, c) for i, c in enumerate(centers_a) if c is not None]
+    valid_b = [(j, c) for j, c in enumerate(centers_b) if c is not None]
+
+    # Initialize with inf distances
     distances = np.full((len(list_a), len(list_b)), float("inf"), dtype=float)
-    for i, ca in enumerate(centers_a):
-        if ca is None:
-            continue
-        for j, cb in enumerate(centers_b):
-            if cb is None:
-                continue
-            distances[i, j] = float(np.linalg.norm(ca - cb))
+
+    if not valid_a or not valid_b:
+        return distances
+
+    # Stack valid centers into arrays for vectorized computation
+    # Shape: (n_valid_a, 2) and (n_valid_b, 2)
+    valid_centers_a = np.stack([c for _, c in valid_a])
+    valid_centers_b = np.stack([c for _, c in valid_b])
+
+    # Vectorized distance computation using broadcasting
+    # valid_centers_a[:, np.newaxis, :] has shape (n_valid_a, 1, 2)
+    # valid_centers_b[np.newaxis, :, :] has shape (1, n_valid_b, 2)
+    # Broadcasting results in (n_valid_a, n_valid_b, 2)
+    diff = valid_centers_a[:, np.newaxis, :] - valid_centers_b[np.newaxis, :, :]
+    # Compute L2 norm along the last axis
+    valid_distances = np.linalg.norm(diff, axis=2)
+
+    # Map back to the full distance matrix using the tracked indices
+    if valid_a and valid_b:
+        # Extract indices
+        indices_a = [i for i, _ in valid_a]
+        indices_b = [j for j, _ in valid_b]
+
+        # Use advanced indexing to assign values
+        # valid_distances has shape (len(valid_a), len(valid_b))
+        # We want to assign to distances[indices_a, indices_b]
+        # np.ix_ creates a meshgrid of indices for broadcasting
+        distances[np.ix_(indices_a, indices_b)] = valid_distances
+
     return distances

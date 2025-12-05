@@ -183,7 +183,7 @@ export class Store {
 
   private getDefaultConfig(): AnonymizerConfig {
     return {
-      model: { name: '1280_nano' },
+      model: { name: '1280_nano_seg' },
       blur: { type: 'gaussian', strength: 10 },
       // Detection settings (with batch_size for performance tuning)
       detection: {
@@ -193,7 +193,7 @@ export class Store {
         use_sahi: true,
         inference_size: 1920,
         sahi_overlap_ratio: 0.2,
-        classes_to_blur: ['person', 'car', 'bus', 'motorcycle', 'truck'],
+        classes_to_blur: ['plate', 'head'],
       },
       tracking: {
         type: 'bytetrack',
@@ -202,8 +202,6 @@ export class Store {
           distance_gate: 0.05,
           confirm_after_N: 2,
           max_misses_M: 10,
-          confidence_threshold: 0.5,
-          low_score_threshold: 0.1,
           use_low_score_pool: true,
           use_visual_tracker: false,
           vt_max_age: 6,

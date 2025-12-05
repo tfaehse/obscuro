@@ -9,6 +9,10 @@ export interface ModelInfo {
   filename: string;
   size_bytes: number;
   immutable?: boolean;
+  metadata?: {
+    classes: string[];
+    default_blur: string[];
+  };
 }
 
 export type BlurType = 'gaussian' | 'pixelate' | 'blackout' | 'debug';
@@ -96,6 +100,7 @@ export interface ConfigOptions {
     sahi_overlap_range: [number, number];
     available_classes: string[];
     current_classes: string[];
+    default_blur_classes: string[];
   };
   tracking: {
     types: string[];

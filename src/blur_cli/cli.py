@@ -12,7 +12,7 @@ from typing import Any
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
-import cv2
+import imageio.v3 as iio
 
 from anonymizer import (
     Anonymizer,
@@ -94,18 +94,20 @@ def blur_image(args):
             progress_callback=progress_callback,
         )
 
-        # Load and process image
-        image = cv2.imread(str(input_path))
-        if image is None:
-            logger.error(f"Could not load image {input_path}")
+        # Load and process image (RGB)
+        try:
+            image = iio.imread(input_path)
+        except Exception as exc:
+            logger.error(f"Could not load image {input_path}: {exc}")
             return 1
 
         logger.info("Detecting and blurring...")
         result = anonymizer.blur_image_array(image)
 
         # Save result
-        success = cv2.imwrite(str(output_path), result)
-        if not success:
+        try:
+            iio.imwrite(output_path, result)
+        except Exception:
             logger.error(f"Could not save image to {output_path}")
             return 1
 
@@ -193,6 +195,7 @@ def blur_video(args):
 
     except Exception as e:
         logger.error(f"CLI: Error processing video: {e}", exc_info=True)
+        raise e
         return 1
 
 

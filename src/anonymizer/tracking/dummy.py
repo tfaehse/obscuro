@@ -20,11 +20,16 @@ class DummyTracker:
         params: TrackerParams | None = None,
         cancel_event=None,
         progress_callback=None,
+        confidence_threshold: float = 0.5,
+        low_score_threshold: float = 0.1,
     ) -> None:
         self.video_source = Path(video_source) if video_source else None
         self.params = params or TrackerParams()
         self.cancel_event = cancel_event
         self.progress_callback = progress_callback
+        # Thresholds are accepted for API compatibility with other trackers.
+        self._high_score_threshold = confidence_threshold
+        self._low_score_threshold = low_score_threshold
 
         self._ema_state: dict[int, np.ndarray] = {}
         self._track_ids: dict[int, int] = {}
@@ -36,8 +41,24 @@ class DummyTracker:
     def set_video_source(self, source: Path | str | None) -> None:
         self.video_source = Path(source) if source else None
 
-    def reconfigure(self, params: TrackerParams) -> None:
+    def set_thresholds(
+        self,
+        confidence_threshold: float | None = None,
+        low_score_threshold: float | None = None,
+    ) -> None:
+        if confidence_threshold is not None:
+            self._high_score_threshold = confidence_threshold
+        if low_score_threshold is not None:
+            self._low_score_threshold = low_score_threshold
+
+    def reconfigure(
+        self,
+        params: TrackerParams,
+        confidence_threshold: float | None = None,
+        low_score_threshold: float | None = None,
+    ) -> None:
         self.params = params
+        self.set_thresholds(confidence_threshold, low_score_threshold)
         # Reset EMA state when params change to avoid mixing weights
         self._ema_state.clear()
         self._track_ids.clear()

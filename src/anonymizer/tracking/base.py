@@ -19,7 +19,7 @@ from .common import Detection, TrackObservation, TrackState, batched_center_dist
 from .kalman import initiate, mean_to_tlwh
 from .kalman import predict as kf_predict
 from .kalman import update as kf_update
-from .utils import prepare_frame_bgr
+from .utils import prepare_frame_rgb
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,8 @@ class BaseTracker:
         params: TrackerParams | None = None,
         cancel_event=None,
         progress_callback=None,
+        confidence_threshold: float = 0.5,
+        low_score_threshold: float = 0.1,
     ) -> None:
         self.video_source = Path(video_source) if video_source else None
         self.params = params or TrackerParams()
@@ -76,6 +78,8 @@ class BaseTracker:
         self._timeline: list[TrackObservation] = []
         self._next_id = 1
         self._frames_processed = 0
+        self._high_score_threshold = confidence_threshold
+        self._low_score_threshold = low_score_threshold
 
     # ------------------------------------------------------------------
     # Public API
@@ -94,7 +98,18 @@ class BaseTracker:
         logger.info("Reconfiguring tracker parameters: %s", params.model_dump())
         self.params = params
         self._reset_frame_iterator()
-        # Base implementation ignores thresholds; subclasses override as needed
+        self.set_thresholds(confidence_threshold, low_score_threshold)
+
+    def set_thresholds(
+        self,
+        confidence_threshold: float | None = None,
+        low_score_threshold: float | None = None,
+    ) -> None:
+        """Update detection thresholds; base stores for subclasses that consult them."""
+        if confidence_threshold is not None:
+            self._high_score_threshold = confidence_threshold
+        if low_score_threshold is not None:
+            self._low_score_threshold = low_score_threshold
 
     def track(self, detections: pl.DataFrame) -> pl.DataFrame:
         if detections.is_empty():
@@ -196,7 +211,7 @@ class BaseTracker:
         return self._last_frame
 
     def _prepare_frame(self, frame: np.ndarray | None) -> np.ndarray | None:
-        return prepare_frame_bgr(frame)
+        return prepare_frame_rgb(frame)
 
     def _process_frame(
         self,
@@ -290,13 +305,8 @@ class BaseTracker:
         unmatched_tracks = set(track_indices)
         unmatched_dets = set(range(len(detections)))
 
-        for r in range(len(track_indices)):
-            for c in range(len(detections)):
-                dist = distance_matrix[r, c]
-                if not np.isfinite(dist):
-                    continue
-                if dist <= gate:
-                    cost_matrix[r, c] = dist
+        valid_mask = (distance_matrix <= gate) & np.isfinite(distance_matrix)
+        cost_matrix[valid_mask] = distance_matrix[valid_mask]
 
         row_ind, col_ind = np.array([], dtype=int), np.array([], dtype=int)
         if cost_matrix.size > 0:

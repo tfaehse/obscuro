@@ -29,7 +29,7 @@ def _iter_pyav_frames(path: str | Path):
                 frame_number,
                 frame.pts,
                 frame.time_base,
-                frame.to_ndarray(format="bgr24"),
+                frame.to_ndarray(format="rgb24"),
             )
 
 
@@ -155,7 +155,7 @@ def blur_video_av(
             processed_img = blur_func(img_cpu, frame_idx)
             if not isinstance(processed_img, np.ndarray):
                 raise ValueError("Blur function must return numpy array")
-            out_frame = av.VideoFrame.from_ndarray(processed_img, format="bgr24")
+            out_frame = av.VideoFrame.from_ndarray(processed_img, format="rgb24")
             out_frame.pts = pts if pts is not None else frame_idx
             out_frame.time_base = time_base or v_in.time_base
             for encoded in v_out.encode(out_frame):
