@@ -5,7 +5,7 @@ from collections import deque
 from collections.abc import Callable
 from datetime import timedelta
 
-ProgressCallback = Callable[[int, str, str], None]
+ProgressCallback = Callable[[float, str, str], None]
 
 
 def throttle_progress_callback(
@@ -28,9 +28,9 @@ def throttle_progress_callback(
     step = max(0.0, float(percent_step))
 
     last_emit_time = float("-inf")
-    last_emit_percent: int | None = None
+    last_emit_percent: float | None = None
 
-    def wrapped(percent: int, stage: str, message: str) -> None:
+    def wrapped(percent: float, stage: str, message: str) -> None:
         nonlocal last_emit_time, last_emit_percent
 
         now = time.monotonic()

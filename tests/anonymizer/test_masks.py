@@ -17,6 +17,7 @@ class TestMaskManager:
     def test_initialization(self, mask_manager):
         assert mask_manager.imgsz == 640
         assert Path(mask_manager._mask_cache_dir).exists()
+        assert Path(mask_manager._mask_proto_db).exists()
         assert mask_manager._next_mask_id == 0
 
     def test_store_and_get_mask_proto(self, mask_manager):
@@ -36,8 +37,6 @@ class TestMaskManager:
         entry = mask_manager.get_mask_proto_entry(frame_id, tile_id)
         assert entry is not None
         assert entry["imgsz"] == 640
-        assert "path" in entry
-        assert Path(entry["path"]).exists()
 
         # Check that proto is loaded on demand
         assert "proto" in entry
@@ -52,13 +51,13 @@ class TestMaskManager:
         meta = {}
 
         mask_manager.store_mask_proto(frame_id, tile_id, proto_slice, meta)
-        path1 = mask_manager.get_mask_proto_entry(frame_id, tile_id)["path"]
+        entry1 = mask_manager.get_mask_proto_entry(frame_id, tile_id)
 
         # Store again should do nothing
         mask_manager.store_mask_proto(frame_id, tile_id, proto_slice, meta)
-        path2 = mask_manager.get_mask_proto_entry(frame_id, tile_id)["path"]
+        entry2 = mask_manager.get_mask_proto_entry(frame_id, tile_id)
 
-        assert path1 == path2
+        assert entry1 == entry2
 
     def test_release_mask_proto(self, mask_manager):
         frame_id = 1
@@ -67,12 +66,9 @@ class TestMaskManager:
         meta = {}
 
         mask_manager.store_mask_proto(frame_id, tile_id, proto_slice, meta)
-        entry = mask_manager.get_mask_proto_entry(frame_id, tile_id)
-        path = entry["path"]
-        assert Path(path).exists()
+        assert mask_manager.get_mask_proto_entry(frame_id, tile_id) is not None
 
         mask_manager.release_mask_proto(frame_id, tile_id)
-        assert not Path(path).exists()
         assert mask_manager.get_mask_proto_entry(frame_id, tile_id) is None
 
     def test_release_mask_proto_all_tiles(self, mask_manager):
@@ -86,6 +82,13 @@ class TestMaskManager:
         mask_manager.release_mask_proto(frame_id)  # Release all tiles for frame_id
         assert mask_manager.get_mask_proto_entry(frame_id, 0) is None
         assert mask_manager.get_mask_proto_entry(frame_id, 1) is None
+
+    def test_finalize_proto_index_creates_index(self, mask_manager):
+        mask_manager.finalize_proto_index()
+        rows = mask_manager._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_mask_proto_frame_tile'"
+        ).fetchall()
+        assert rows
 
     def test_register_and_get_mask_payload(self, mask_manager):
         payload = {"format": "binary", "data": b"123"}

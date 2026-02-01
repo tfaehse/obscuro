@@ -20,7 +20,13 @@ class TestSahiDetector:
 
     @pytest.fixture
     def detector(self, mock_session):
-        with patch("pathlib.Path.exists", return_value=True):
+        with (
+            patch("pathlib.Path.exists", return_value=True),
+            patch(
+                "anonymizer.detection.core.load_model_metadata",
+                return_value={"classes": ["cls"], "default_blur": ["cls"]},
+            ),
+        ):
             return SahiDetector("fake_model.onnx", sahi_overlap_ratio=0.2)
 
     def test_initialization(self, detector):

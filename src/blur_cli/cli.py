@@ -70,7 +70,7 @@ def blur_image(args):
 
     # Progress callback for CLI
     def progress_callback(percent, stage, message):
-        progress_logger.info(f"Progress: {percent}% - {stage}: {message}")
+        progress_logger.info(f"Progress: {percent:.2f}% - {stage}: {message}")
 
     try:
         # Load configuration and apply CLI overrides
@@ -153,7 +153,7 @@ def blur_video(args):
 
     # Progress callback for CLI
     def progress_callback(percent, stage, message):
-        progress_logger.info(f"Progress: {percent:3.1f}% - {stage}: {message}")
+        progress_logger.info(f"Progress: {percent:.2f}% - {stage}: {message}")
 
     try:
         # Load configuration and apply CLI overrides
@@ -195,7 +195,6 @@ def blur_video(args):
 
     except Exception as e:
         logger.error(f"CLI: Error processing video: {e}", exc_info=True)
-        raise e
         return 1
 
 
@@ -241,6 +240,8 @@ def get_config_for_args(args) -> AnonymizerConfig:
         detection_overrides["confidence_threshold"] = confidence_arg
     if low_score_arg is not None:
         detection_overrides["low_score_threshold"] = low_score_arg
+    if getattr(args, "disable_masks", False):
+        detection_overrides["disable_masks"] = True
     if hasattr(args, "batch_size") and args.batch_size is not None:
         detection_overrides["batch_size"] = max(1, int(args.batch_size))
     if hasattr(args, "use_sahi") and args.use_sahi is not None:
@@ -504,6 +505,13 @@ Examples:
         )
         subparser.add_argument(
             "--blur-strength", type=int, help="Blur strength/intensity (overrides config file)"
+        )
+
+        # Detection arguments
+        subparser.add_argument(
+            "--disable-masks",
+            action="store_true",
+            help="Disable segmentation masks (use bounding boxes only)",
         )
         subparser.add_argument(
             "--confidence-threshold",

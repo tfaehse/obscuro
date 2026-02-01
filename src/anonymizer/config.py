@@ -99,6 +99,10 @@ class DetectionConfig(BaseModel):
         default=True,
         description="Enable SAHI tiled inference (suitable for high-resolution frames)",
     )
+    disable_masks: bool = Field(
+        default=False,
+        description="If true, skip segmentation masks and use bounding boxes only",
+    )
     inference_size: int = Field(
         default=1920,
         ge=256,

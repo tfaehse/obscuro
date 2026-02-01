@@ -199,6 +199,7 @@ def get_model_key(anonymizer_config: AnonymizerConfig) -> str:
         f"{int(anonymizer_config.detection.use_sahi)}-"
         f"{anonymizer_config.detection.inference_size}-"
         f"{anonymizer_config.detection.sahi_overlap_ratio}-"
+        f"{int(anonymizer_config.detection.disable_masks)}-"
         f"{blur_classes_key}"
     )
 
@@ -328,11 +329,11 @@ def get_backend_health(*, blocking: bool = True) -> dict[str, object]:
 
 
 def make_progress_callback(job_id: str):
-    def callback(percent: int, stage: str, message: str):
+    def callback(percent: float, stage: str, message: str):
         with video_jobs_lock:
             if job_id in video_jobs:
                 video_jobs[job_id]["job_id"] = job_id
-                video_jobs[job_id]["progress"] = percent
+                video_jobs[job_id]["progress"] = float(percent)
                 video_jobs[job_id]["stage"] = stage
                 video_jobs[job_id]["stage_message"] = message
                 video_jobs[job_id]["message"] = f"{stage}: {message}"
@@ -388,6 +389,7 @@ async def get_config_options():
             "available_classes": list(available_classes),
             "current_classes": list(current_classes),
             "default_blur_classes": list(default_blur_classes),
+            "current_disable_masks": global_config.detection.disable_masks,
         },
         "tracking": {
             "types": sorted(TRACKER_FACTORY.keys()),

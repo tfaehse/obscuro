@@ -88,7 +88,8 @@ export class ProgressUI {
     this.progressBar.value = event.progress;
     const message = store.getProgressMessage();
     const prefix = typeof event.stage === 'string' && event.stage.length > 0 ? `${event.stage}: ` : '';
-    this.statusText.textContent = `${prefix}${message}`;
+    const percent = typeof event.progress === 'number' ? event.progress.toFixed(2) : '0.00';
+    this.statusText.textContent = `${percent}% · ${prefix}${message}`;
 
     // Handle different status types
     if (event.status === 'done') {
@@ -111,10 +112,11 @@ export class ProgressUI {
   // Public methods for external control
   setProgress(value: number, message: string, stage?: string): void {
     this.progressBar.value = value;
+    const percent = Number.isFinite(value) ? value.toFixed(2) : '0.00';
     if (stage && stage.length > 0) {
-      this.statusText.textContent = `${stage}: ${message}`;
+      this.statusText.textContent = `${percent}% · ${stage}: ${message}`;
     } else {
-      this.statusText.textContent = message;
+      this.statusText.textContent = `${percent}% · ${message}`;
     }
   }
 

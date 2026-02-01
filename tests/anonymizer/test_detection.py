@@ -14,13 +14,18 @@ from polars.testing import assert_frame_equal
 from sahi.prediction import PredictionResult
 
 from anonymizer.cancellation import CancellationException
+from anonymizer.constants import DEFAULT_SEGMENTATION_CLASSES
 from anonymizer.detection import Detector, FrameDetector
 from anonymizer.detection.utils import letterbox, preprocess_image
 from anonymizer.sahi_integration import SahiOnnxDetectionModel
 
 
 def _build_detector_with_session(
-    session_output=None, *, use_sahi: bool = False, categories_to_blur=None
+    session_output=None,
+    *,
+    use_sahi: bool = False,
+    categories_to_blur=None,
+    model_classes: list[str] | None = None,
 ):
     """Instantiate a detector with a mocked ONNX session."""
     if session_output is None:
@@ -28,19 +33,26 @@ def _build_detector_with_session(
             np.array(
                 [
                     [
-                        [320.0, 240.0, 160.0, 80.0, -10.0, -10.0],
+                        [320.0, 240.0, 160.0, 80.0, 0.9, 0.1],
                     ]
                 ],
                 dtype=np.float32,
-            )
+            ).transpose(0, 2, 1)
         ]
 
+    classes = model_classes or list(DEFAULT_SEGMENTATION_CLASSES)
+    if categories_to_blur is None:
+        categories_to_blur = ["*"]
     with (
         patch(
             "anonymizer.detection.model.ort.get_available_providers",
             return_value=["CPUExecutionProvider"],
         ),
         patch("anonymizer.detection.model.ort.InferenceSession") as mock_session,
+        patch(
+            "anonymizer.detection.core.load_model_metadata",
+            return_value={"classes": classes, "default_blur": classes},
+        ),
         patch("pathlib.Path.exists", return_value=True),
     ):
         fake_session = Mock()
@@ -150,36 +162,24 @@ class TestDetector:
         # Create enough dummy boxes to ensure num_boxes > num_features (8)
         # to avoid the transpose heuristic in _postprocess
         boxes = [
-            [50.0, 50.0, 10.0, 10.0, -10.0, 10.0, -10.0, -10.0],  # Class 1 (index 1) high
-            [70.0, 70.0, 12.0, 12.0, 10.0, -10.0, -10.0, -10.0],  # Class 0 (index 0) high
+            [50.0, 50.0, 10.0, 10.0, 0.1, 0.9, 0.0, 0.0],  # Class 1 (index 1) high
+            [70.0, 70.0, 12.0, 12.0, 0.9, 0.1, 0.0, 0.0],  # Class 0 (index 0) high
         ]
 
-        session_output = [
-            np.array(
-                [boxes],
-                dtype=np.float32,
-            )
-        ]
+        session_output = [np.array([boxes], dtype=np.float32).transpose(0, 2, 1)]
 
-        # Mock the category mapping to include "head" at index 1
-        with patch(
-            "anonymizer.detection.core.DEFAULT_CATEGORY_MAPPING", {"0": "person", "1": "head"}
-        ):
-            detector, _ = _build_detector_with_session(
-                session_output=session_output,
-                categories_to_blur=["head"],
-            )
-            # Force re-initialization of mapping dependent attributes
-            detector.category_mapping = {"0": "person", "1": "head"}
-            detector._class_name_by_id = {0: "person", 1: "head"}
-            detector._allowed_class_ids = detector._resolve_allowed_class_ids(["head"])
+        detector, _ = _build_detector_with_session(
+            session_output=session_output,
+            categories_to_blur=["head"],
+            model_classes=["person", "head"],
+        )
 
-            meta = {"scale": (1.0, 1.0), "pad": (0.0, 0.0), "original_shape": (640, 640)}
-            df = detector._postprocess(session_output, [meta])
+        meta = {"scale": (1.0, 1.0), "pad": (0.0, 0.0), "original_shape": (640, 640)}
+        df = detector._postprocess(session_output, [meta])
 
-            nms_results = df.filter(pl.col("is_confident"))
-            # After filtering by category, expect only class 1 (head)
-            assert set(nms_results["object_class"].to_list()) == {1}
+        nms_results = df.filter(pl.col("is_confident"))
+        # After filtering by category, expect only class 1 (head)
+        assert set(nms_results["object_class"].to_list()) == {1}
 
     def test_sahi_matches_standard_detection(self, sample_image):
         """SAHI integration should align with standard inference for identical outputs."""
@@ -191,7 +191,7 @@ class TestDetector:
                     ]
                 ],
                 dtype=np.float32,
-            )
+            ).transpose(0, 2, 1)
         ]
 
         baseline_detector, _ = _build_detector_with_session(session_output=session_output)
@@ -405,7 +405,15 @@ class TestDetectorPreprocessing:
             # Values should be normalized to [0, 1]
             assert result.min() >= 0.0
             assert result.max() <= 1.0
-            assert set(meta.keys()) == {"scale", "pad", "original_shape"}
+            assert set(meta.keys()) == {
+                "scale",
+                "pad",
+                "original_shape",
+                "global_shape",
+                "tile_id",
+                "tile_offset",
+                "scale_up",
+            }
             assert isinstance(meta["original_shape"], tuple)
 
     def test_preprocess_different_sizes(self):
@@ -557,19 +565,21 @@ class TestDetectorAdvanced:
 @patch("anonymizer.detection.model.ort.InferenceSession")
 @patch("pathlib.Path.exists", return_value=True)
 def test_detector_postprocess_absolute_coordinates(mock_exists, mock_session):
-    detector = Detector(Path("fake_model.onnx"))
+    with patch(
+        "anonymizer.detection.core.load_model_metadata",
+        return_value={
+            "classes": list(DEFAULT_SEGMENTATION_CLASSES),
+            "default_blur": list(DEFAULT_SEGMENTATION_CLASSES),
+        },
+    ):
+        detector = Detector(Path("fake_model.onnx"), categories_to_blur=["*"])
 
-    # Add dummy boxes to ensure num_boxes > num_features (6)
-    boxes = [
-        [320.0, 240.0, 160.0, 80.0, 0.9, 0.1],
-    ]
+        # Add dummy boxes to ensure num_boxes > num_features (6)
+        boxes = [
+            [320.0, 240.0, 160.0, 80.0, 0.9, 0.1],
+        ]
 
-    outputs = [
-        np.array(
-            [boxes],
-            dtype=np.float32,
-        )
-    ]
+        outputs = [np.array([boxes], dtype=np.float32).transpose(0, 2, 1)]
     metas = [
         {
             "scale": (1.0, 1.0),
@@ -623,25 +633,33 @@ def test_low_score_threshold_filters_pre_nms(mock_exists, mock_session):
 @patch("anonymizer.detection.model.ort.InferenceSession")
 @patch("pathlib.Path.exists", return_value=True)
 def test_detector_postprocess_transposed_output(mock_exists, mock_session):
-    detector = Detector(
-        Path("fake_model.onnx"),
-        confidence_threshold=0.5,
-        low_score_threshold=0.1,
-    )
+    with patch(
+        "anonymizer.detection.core.load_model_metadata",
+        return_value={
+            "classes": list(DEFAULT_SEGMENTATION_CLASSES),
+            "default_blur": list(DEFAULT_SEGMENTATION_CLASSES),
+        },
+    ):
+        detector = Detector(
+            Path("fake_model.onnx"),
+            confidence_threshold=0.5,
+            low_score_threshold=0.1,
+            categories_to_blur=["*"],
+        )
 
-    outputs = [
-        np.array(
-            [
-                [200.0, 60.0],  # x_center values
-                [150.0, 40.0],  # y_center values
-                [80.0, 20.0],  # widths
-                [60.0, 20.0],  # heights
-                [10.0, -10.0],  # class 0 logits (high, low)
-                [-10.0, 10.0],  # class 1 logits (low, high)
-            ],
-            dtype=np.float32,
-        ).reshape(1, 6, 2)
-    ]
+        outputs = [
+            np.array(
+                [
+                    [200.0, 60.0],  # x_center values
+                    [150.0, 40.0],  # y_center values
+                    [80.0, 20.0],  # widths
+                    [60.0, 20.0],  # heights
+                    [0.99, 0.01],  # class 0 probs (high, low)
+                    [0.01, 0.99],  # class 1 probs (low, high)
+                ],
+                dtype=np.float32,
+            ).reshape(1, 6, 2)
+        ]
 
     metas = [
         {
@@ -657,7 +675,7 @@ def test_detector_postprocess_transposed_output(mock_exists, mock_session):
     # First box: class 0 (logit 10.0 -> prob ~1.0)
     row = df.row(0, named=True)
     assert row["object_class"] == 0
-    assert row["confidence"] == pytest.approx(1.0, abs=0.01)
+    assert row["confidence"] == pytest.approx(0.99, abs=0.01)
     assert row["x1"] == pytest.approx(160.0)  # 200 - 40
 
     # Second box: class 1 (logit 10.0 -> prob ~1.0)
@@ -671,14 +689,18 @@ def test_detector_postprocess_transposed_output(mock_exists, mock_session):
 @patch("anonymizer.detection.model.ort.InferenceSession")
 @patch("pathlib.Path.exists", return_value=True)
 def test_detector_postprocess_scales_and_clips(mock_exists, mock_session):
-    detector = Detector(Path("fake_model.onnx"))
+    with patch(
+        "anonymizer.detection.core.load_model_metadata",
+        return_value={
+            "classes": list(DEFAULT_SEGMENTATION_CLASSES),
+            "default_blur": list(DEFAULT_SEGMENTATION_CLASSES),
+        },
+    ):
+        detector = Detector(Path("fake_model.onnx"), categories_to_blur=["*"])
 
-    outputs = [
-        np.array(
-            [[[150.0, 100.0, 120.0, 80.0, 0.8, 0.2]]],
-            dtype=np.float32,
-        )
-    ]
+        outputs = [
+            np.array([[[150.0, 100.0, 120.0, 80.0, 0.8, 0.2]]], dtype=np.float32).transpose(0, 2, 1)
+        ]
 
     metas = [
         {
@@ -700,17 +722,31 @@ def test_detector_postprocess_scales_and_clips(mock_exists, mock_session):
 @patch("anonymizer.detection.model.ort.InferenceSession")
 @patch("pathlib.Path.exists", return_value=True)
 def test_detector_postprocess_applies_class_thresholds(mock_exists, mock_session):
-    detector = Detector(Path("fake_model.onnx"), confidence_threshold=0.6, low_score_threshold=0.2)
+    with patch(
+        "anonymizer.detection.core.load_model_metadata",
+        return_value={
+            "classes": list(DEFAULT_SEGMENTATION_CLASSES),
+            "default_blur": list(DEFAULT_SEGMENTATION_CLASSES),
+        },
+    ):
+        detector = Detector(
+            Path("fake_model.onnx"),
+            confidence_threshold=0.6,
+            low_score_threshold=0.2,
+            categories_to_blur=["*"],
+        )
 
-    outputs = [
-        np.array(
-            [
-                [100.0, 50.0, 40.0, 30.0, 0.55, 0.45],
-                [120.0, 60.0, 40.0, 30.0, 0.3, 0.7],
-            ],
-            dtype=np.float32,
-        ).reshape(1, 2, 6)
-    ]
+        outputs = [
+            np.array(
+                [
+                    [100.0, 50.0, 40.0, 30.0, 0.55, 0.45],
+                    [120.0, 60.0, 40.0, 30.0, 0.3, 0.7],
+                ],
+                dtype=np.float32,
+            )
+            .reshape(1, 2, 6)
+            .transpose(0, 2, 1)
+        ]
 
     metas = [
         {
@@ -721,13 +757,12 @@ def test_detector_postprocess_applies_class_thresholds(mock_exists, mock_session
     ]
 
     df = detector._postprocess(outputs, metas)
-    # Both boxes are above low_score_threshold so both are confident
+    assert df.height == 2
     confident = df.filter(pl.col("is_confident"))
-    # Both boxes pass low_score_threshold (0.55 and 0.7 both > 0.2)
-    assert confident.height == 2
+    assert confident.height == 1
 
     rejected = df.filter(~pl.col("is_confident"))
-    assert rejected.height == 0  # Both boxes pass thresholds
+    assert rejected.height == 1
 
 
 def test_detector_postprocess_honours_cancellation():
@@ -881,12 +916,12 @@ class TestDetectorPostprocess:
             np.array(
                 [
                     [
-                        [100.0, 100.0, 50.0, 50.0, 10.0, -10.0, -10.0],  # Class 0 high
-                        [200.0, 200.0, 50.0, 50.0, -10.0, 10.0, -10.0],  # Class 1 high
+                        [100.0, 100.0, 50.0, 50.0, 0.9, 0.1, 0.0],  # Class 0 high
+                        [200.0, 200.0, 50.0, 50.0, 0.1, 0.9, 0.0],  # Class 1 high
                     ]
                 ],
                 dtype=np.float32,
-            )
+            ).transpose(0, 2, 1)
         ]
         metas = [
             {
@@ -901,19 +936,21 @@ class TestDetectorPostprocess:
         classes = df.get_column("object_class").to_list()
         assert set(classes) == {0, 1}
         class0 = df.filter(pl.col("object_class") == 0)
-        assert class0.get_column("confidence").item() == pytest.approx(1.0, abs=0.01)
+        assert class0.get_column("confidence").item() == pytest.approx(0.9, abs=0.01)
 
     def test_detect_from_list_runs_inference(self):
         # Each image should produce detections
         # For a batch of 2 images, we need output with batch dimension = 2
-        boxes_img1 = [50.0, 50.0, 10.0, 10.0, -10.0, 10.0, -10.0, -10.0]  # Class 1 high
-        boxes_img2 = [70.0, 70.0, 12.0, 12.0, 10.0, -10.0, -10.0, -10.0]  # Class 0 high
+        boxes_img1 = [50.0, 50.0, 10.0, 10.0, 0.1, 0.9, 0.0, 0.0]  # Class 1 high
+        boxes_img2 = [70.0, 70.0, 12.0, 12.0, 0.9, 0.1, 0.0, 0.0]  # Class 0 high
 
         session_output = [
             np.array(
                 [boxes_img1, boxes_img2],  # 2 boxes, one per image
                 dtype=np.float32,
-            ).reshape(1, 2, 8)  # batch=1, num_boxes=2, features=8
+            )
+            .reshape(1, 2, 8)
+            .transpose(0, 2, 1)  # batch=1, features=8, num_boxes=2
         ]
         detector, fake_session = _build_detector_with_session(session_output=session_output)
 

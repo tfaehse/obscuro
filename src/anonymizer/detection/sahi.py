@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from collections.abc import Iterable
 from pathlib import Path
@@ -36,6 +37,7 @@ class SahiDetector(BaseDetector):
         self.sahi_overlap_ratio = float(max(0.0, min(sahi_overlap_ratio, 0.99)))
         self._sahi_model: SahiOnnxDetectionModel | None = None
         self._category_mapping = dict(self.category_mapping)
+        self._logged_tile_info = False
         self.logger.info(
             "SAHI inference configured tile=%dx%d inference_size=%d overlap=%.2f",
             self.imgsz,
@@ -177,9 +179,11 @@ class SahiDetector(BaseDetector):
         )
         return self._filter_by_categories(df)
 
-    def _predict_single_image(self, image: np.ndarray) -> pl.DataFrame:
+    def _predict_single_image(self, image: np.ndarray, *, frame_id: int = 0) -> pl.DataFrame:
         prepared = self._prepare_image_for_sahi(image)
         original_height, original_width = prepared.shape[:2]
+        prepared, downscale = self._downscale_for_sahi(prepared)
+        scale_up = 1.0 / downscale if downscale != 0 else 1.0
         tiles = slice_image(
             image=prepared,
             slice_height=self.imgsz,
@@ -199,13 +203,26 @@ class SahiDetector(BaseDetector):
                 float(tile["starting_pixel"][1]),
             )
             meta["tile_id"] = tile_id
-            meta["global_shape"] = (original_height, original_width)
+            meta["global_shape"] = prepared.shape[:2]
+            meta["scale_up"] = scale_up
             metas.append(meta)
             tensors.append(pre[0])
 
         detections_batches: list[np.ndarray] = []
         proto_batches: list[np.ndarray] = []
         batch_size = max(1, int(self.batch_size))
+        if not self._logged_tile_info:
+            batches = math.ceil(len(tensors) / batch_size) if tensors else 0
+            self.logger.info(
+                "SAHI tiling will run %d tiles per frame in %d batch(es) (tile=%dx%d, overlap=%.2f, batch_size=%d)",
+                len(tensors),
+                batches,
+                self.imgsz,
+                self.imgsz,
+                self.sahi_overlap_ratio,
+                batch_size,
+            )
+            self._logged_tile_info = True
         for i in range(0, len(tensors), batch_size):
             batch_tensor = np.stack(tensors[i : i + batch_size], axis=0)
             outputs = self.session.run(None, {self._input_name: batch_tensor})
@@ -230,19 +247,32 @@ class SahiDetector(BaseDetector):
             )
             outputs_final.append(proto_arr)
 
-        frame_ids = [0] * len(metas)
-        return self._postprocess(outputs_final, metas, frame_ids=frame_ids)
+        frame_ids = [int(frame_id)] * len(metas)
+        df = self._postprocess(outputs_final, metas, frame_ids=frame_ids)
+        if downscale != 1.0 and not df.is_empty():
+            scale_up = 1.0 / downscale
+            df = df.with_columns(
+                pl.col("x1") * scale_up,
+                pl.col("y1") * scale_up,
+                pl.col("x2") * scale_up,
+                pl.col("y2") * scale_up,
+                pl.col("frame_width") * scale_up,
+                pl.col("frame_height") * scale_up,
+            )
+        return df
 
     def _iter_frame_sequence(
-        self, images: Iterable[np.ndarray]
+        self, images: Iterable[np.ndarray], frame_ids: Iterable[int] | None = None
     ) -> Iterable[tuple[int, pl.DataFrame | None]]:
-        for idx, image in enumerate(images):
+        iterable = enumerate(images) if frame_ids is None else zip(frame_ids, images, strict=False)
+
+        for idx, image in iterable:
             self._check_cancelled()
-            df = self._predict_single_image(image)
+            df = self._predict_single_image(image, frame_id=int(idx))
             if df.is_empty():
                 yield idx, None
             else:
-                yield idx, df.with_columns(pl.lit(idx).alias("frame"))
+                yield idx, df
 
     # Implement abstract hooks ------------------------------------------------
 
@@ -266,7 +296,7 @@ class SahiDetector(BaseDetector):
             if df is not None:
                 results.append(df)
             if total_frames:
-                percentage = int(((idx + 1) / total_frames) * 100)
+                percentage = round(((idx + 1) / total_frames) * 100, 2)
                 self._report_progress(percentage, f"Processed frame {idx + 1}/{total_frames}.")
 
         self._report_progress(100, "Batch array processing complete")
@@ -294,15 +324,26 @@ class SahiDetector(BaseDetector):
                 continue
 
             frame_indices = np.array([idx for idx, _ in batch], dtype=np.int64)
-            frames_bgr = [frame for _, frame in batch]
+            frames = [frame for _, frame in batch]
 
-            frame_dfs = [df for _, df in self._iter_frame_sequence(frames_bgr) if df is not None]
+            frame_dfs = [
+                df
+                for _, df in self._iter_frame_sequence(frames, frame_ids=frame_indices.tolist())
+                if df is not None
+            ]
 
             if frame_dfs:
                 df = pl.concat(frame_dfs, rechunk=True)
                 local_indices = df.get_column("frame").to_numpy()
-                mapped = frame_indices[local_indices]
-                df = df.with_columns(pl.Series(name="frame", values=mapped, dtype=pl.Int64))
+                # If frames are local indices, remap to the original frame numbers;
+                # if they are already absolute frame ids, skip remapping.
+                if (
+                    local_indices.size > 0
+                    and local_indices.min() >= 0
+                    and local_indices.max() < len(frame_indices)
+                ):
+                    mapped = frame_indices[local_indices]
+                    df = df.with_columns(pl.Series(name="frame", values=mapped, dtype=pl.Int64))
                 results.append(df)
 
             processed_frames += len(batch)
@@ -310,14 +351,14 @@ class SahiDetector(BaseDetector):
             fps = rate_tracker.record(len(batch), batch_duration)
             if total_frames_meta > 0:
                 remaining_frames = max(total_frames_meta - processed_frames, 0)
-                percentage = int(min(100, (processed_frames / total_frames_meta) * 100))
+                percentage = min(100.0, round((processed_frames / total_frames_meta) * 100, 2))
                 message = format_progress_message(
                     f"Processed {processed_frames}/{total_frames_meta} frames",
                     fps,
                     remaining_frames,
                 )
             else:
-                percentage = min(99, max(1, processed_frames))
+                percentage = float(min(99, max(1, processed_frames)))
                 message = format_progress_message(
                     f"Processed {processed_frames} frames",
                     fps,

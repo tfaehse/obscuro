@@ -221,6 +221,10 @@ def detector(mock_model_path):
         patch("anonymizer.detection.core.ModelLoader"),
         patch("onnxruntime.InferenceSession"),
         patch("onnxruntime.get_available_providers", return_value=["CPUExecutionProvider"]),
+        patch(
+            "anonymizer.detection.core.load_model_metadata",
+            return_value={"classes": ["bike"], "default_blur": ["bike"]},
+        ),
     ):
         det = BaseDetector(model_path=mock_model_path)
         det.session = Mock()

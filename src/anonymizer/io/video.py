@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import threading
 from collections.abc import Iterator
+from fractions import Fraction
 from pathlib import Path
 from queue import Queue
 from typing import Any
@@ -50,29 +51,19 @@ def iter_frames_with_metadata(
 
     sentinel = object()
     queue: Queue = Queue(maxsize=max(1, prefetch))
-    producer_exc: list[BaseException] = []
 
     def producer():
-        try:
-            for item in _iter_pyav_frames(path):
-                queue.put(item)
-        except BaseException as exc:  # pragma: no cover - defensive
-            producer_exc.append(exc)
-        finally:
-            queue.put(sentinel)
+        for item in _iter_pyav_frames(path):
+            queue.put(item)
+        queue.put(sentinel)
 
     thread = threading.Thread(target=producer, daemon=True)
     thread.start()
-    try:
-        while True:
-            item = queue.get()
-            if item is sentinel:
-                break
-            yield item
-    finally:
-        thread.join()
-    if producer_exc:
-        raise producer_exc[0]
+    while True:
+        item = queue.get()
+        if item is sentinel:
+            break
+        yield item
 
 
 def get_video_info(path: str | Path) -> dict:
@@ -121,12 +112,23 @@ def blur_video_av(
             v_in.frames if v_in.frames else int(v_in.average_rate * v_in.duration * v_in.time_base)
         )
 
-        v_out = out_container.add_stream(codec_name=codec)
+        if v_in.average_rate:
+            fps_rate = v_in.average_rate
+            fps = float(fps_rate)
+        else:
+            fps = 0.0
+            fps_rate = Fraction(30, 1)
+        if fps <= 0:
+            fps = 30.0
+            fps_rate = Fraction(30, 1)
+
+        v_out = out_container.add_stream(codec_name=codec, rate=fps_rate)
         v_out.width = v_in.width
         v_out.height = v_in.height
         v_out.pix_fmt = "yuv420p"
         v_out.bit_rate = v_in.bit_rate
-        v_out.time_base = v_in.time_base
+        output_time_base = Fraction(1, int(round(fps)))
+        v_out.time_base = output_time_base
         if hasattr(v_in, "rate"):
             v_out.rate = v_in.rate
         elif hasattr(v_in, "average_rate"):
@@ -149,15 +151,15 @@ def blur_video_av(
                     v_out.codec_context.options["crf"] = str(int(quality))
 
         frame_number = 0
-        for frame_idx, pts, time_base, img_cpu in iter_frames_with_metadata(
+        for frame_idx, _, _, img_cpu in iter_frames_with_metadata(
             input_path, prefetch=_ENCODE_PREFETCH
         ):
             processed_img = blur_func(img_cpu, frame_idx)
             if not isinstance(processed_img, np.ndarray):
                 raise ValueError("Blur function must return numpy array")
             out_frame = av.VideoFrame.from_ndarray(processed_img, format="rgb24")
-            out_frame.pts = pts if pts is not None else frame_idx
-            out_frame.time_base = time_base or v_in.time_base
+            out_frame.time_base = output_time_base
+            out_frame.pts = frame_number
             for encoded in v_out.encode(out_frame):
                 out_container.mux(encoded)
             frame_number += 1

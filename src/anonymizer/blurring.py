@@ -140,9 +140,6 @@ class Blurrer:
         progress_rate = ProgressRateEstimator()
         last_progress_time = time.perf_counter()
 
-        def _rows_to_boxes(rows: Sequence[dict[str, Any]]):
-            return [(float(r["x1"]), float(r["y1"]), float(r["x2"]), float(r["y2"])) for r in rows]
-
         def process_frame(frame: np.ndarray, frame_num: int) -> np.ndarray:
             """Process a single frame with blurring or debug overlay."""
             if self.cancel_event and self.cancel_event.is_set():
@@ -188,7 +185,10 @@ class Blurrer:
                 duration = max(1e-6, now - last_progress_time)
                 last_progress_time = now
                 fps = progress_rate.record(1, duration)
-                percentage = int((frame_num / total) * 100) if total > 0 else min(99, frame_num)
+                if total > 0:
+                    percentage = min(100.0, round((frame_num / total) * 100, 2))
+                else:
+                    percentage = float(min(99, frame_num))
                 remaining = max(total - frame_num, 0) if total > 0 else None
                 prefix = (
                     f"Processing frame {frame_num}/{total}"

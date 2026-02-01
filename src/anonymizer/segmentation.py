@@ -18,6 +18,8 @@ def decode_yolo_masks(
         return [None] * len(boxes_xyxy)
 
     original_h, original_w = map(int, meta.get("original_shape", (0, 0)))
+    global_h, global_w = map(int, meta.get("global_shape", (original_h, original_w)))
+
     if original_h <= 0 or original_w <= 0:
         return [None] * len(boxes_xyxy)
 
@@ -82,10 +84,10 @@ def decode_yolo_masks(
 
     for i, (mask_map, box) in enumerate(zip(cropped, boxes_xyxy, strict=False)):
         # Clamp box to original image bounds
-        x1_f = float(np.clip(box[0], 0, original_w))
-        y1_f = float(np.clip(box[1], 0, original_h))
-        x2_f = float(np.clip(box[2], 0, original_w))
-        y2_f = float(np.clip(box[3], 0, original_h))
+        x1_f = float(np.clip(box[0], 0, global_w))
+        y1_f = float(np.clip(box[1], 0, global_h))
+        x2_f = float(np.clip(box[2], 0, global_w))
+        y2_f = float(np.clip(box[3], 0, global_h))
         if x2_f <= x1_f or y2_f <= y1_f:
             continue
 
@@ -125,11 +127,11 @@ def decode_yolo_masks(
         x2_int = int(np.ceil(x2_f + offset_x))
         y2_int = int(np.ceil(y2_f + offset_y))
 
-        if original_w > 0 and original_h > 0:
-            x1_clip = max(0, min(x1_int, original_w))
-            y1_clip = max(0, min(y1_int, original_h))
-            x2_clip = max(0, min(x2_int, original_w))
-            y2_clip = max(0, min(y2_int, original_h))
+        if global_w > 0 and global_h > 0:
+            x1_clip = max(0, min(x1_int, global_w))
+            y1_clip = max(0, min(y1_int, global_h))
+            x2_clip = max(0, min(x2_int, global_w))
+            y2_clip = max(0, min(y2_int, global_h))
         else:
             x1_clip, y1_clip, x2_clip, y2_clip = x1_int, y1_int, x2_int, y2_int
 

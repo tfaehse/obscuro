@@ -48,6 +48,7 @@ class BaseDetector:
         inference_size: int = 1920,
         execution_providers: list[str] | None = None,
         categories_to_blur: Sequence[str] | None = None,
+        disable_masks: bool = False,
     ) -> None:
         self.cancel_event = cancel_event
         self.batch_size = batch_size
@@ -56,6 +57,7 @@ class BaseDetector:
         self.low_score_threshold = float(max(0.0, min(low_score_threshold, 1.0)))
         self.nms_iou_threshold = float(max(0.0, min(nms_iou_threshold, 1.0)))
         self.inference_size = max(int(inference_size), 256)
+        self.disable_masks = disable_masks
 
         # Initialize ModelLoader
         self.model_loader = ModelLoader(model_path, execution_providers)
@@ -101,15 +103,25 @@ class BaseDetector:
 
     def detect(self, input: Any) -> pl.DataFrame:
         if isinstance(input, Path):
-            return self._detect_from_path(input)
-        if isinstance(input, np.ndarray):
+            result = self._detect_from_path(input)
+        elif isinstance(input, np.ndarray):
             if input.ndim == 4:
-                return self._detect_from_batch_array(input)
-            if input.ndim == 3:
-                return self._detect_from_array(input)
-        if isinstance(input, list) and all(isinstance(x, np.ndarray) for x in input):
-            return self._detect_from_list(input)
-        raise ValueError("Unsupported input type for detection")
+                result = self._detect_from_batch_array(input)
+            elif input.ndim == 3:
+                result = self._detect_from_array(input)
+            else:
+                raise ValueError("Unsupported input type for detection")
+        elif isinstance(input, list) and all(isinstance(x, np.ndarray) for x in input):
+            result = self._detect_from_list(input)
+        else:
+            raise ValueError("Unsupported input type for detection")
+
+        if not self.disable_masks:
+            self.mask_manager.finalize_proto_index()
+        return result
+
+    def finalize_mask_cache(self) -> None:
+        self.mask_manager.finalize_proto_index()
 
     @staticmethod
     def _normalize_category_name(value: Any) -> str:
@@ -174,7 +186,7 @@ class BaseDetector:
     def _detect_from_array(self, image: np.ndarray) -> pl.DataFrame:
         self._check_cancelled()
         image = ensure_channel_last(image)
-        preprocessed, meta = preprocess_image(image, self.inference_size)
+        preprocessed, meta = preprocess_image(image, self.imgsz)
 
         outputs = self.session.run(None, {self._input_name: preprocessed})
         return self._postprocess(outputs, [meta])
@@ -191,7 +203,7 @@ class BaseDetector:
         metas = []
         for img in images:
             img = ensure_channel_last(img)
-            p_img, meta = preprocess_image(img, self.inference_size)
+            p_img, meta = preprocess_image(img, self.imgsz)
             preprocessed_list.append(p_img)
             metas.append(meta)
 
@@ -314,7 +326,7 @@ class BaseDetector:
             return self._empty_result_df()
 
         detections_raw = outputs[0]
-        mask_proto = outputs[1]
+        mask_proto = outputs[1] if len(outputs) > 1 else None
 
         # Expect YOLO11-seg layout: (B, 116, 8400) -> transpose to (B, 8400, 116)
         if detections_raw.ndim != 3:
@@ -347,12 +359,18 @@ class BaseDetector:
                 continue
 
             mask_dim = mask_proto.shape[1] if mask_proto is not None else 0
+            # If masks are disabled, ignore the mask coefficients in the output tensor check
+            # but we still need to know mask_dim to properly slice class scores.
+
             if remainder.shape[1] <= mask_dim:
                 raise ValueError("Detector output missing class scores before mask coefficients")
 
             class_count = remainder.shape[1] - mask_dim
             class_scores = remainder[:, :class_count]
-            mask_coeffs = remainder[:, class_count:] if mask_dim > 0 else None
+
+            mask_coeffs = None
+            if not self.disable_masks and mask_dim > 0:
+                mask_coeffs = remainder[:, class_count:]
 
             # Limit to configured number of classes
             usable_classes = min(self.num_classes, class_scores.shape[1])
@@ -365,7 +383,11 @@ class BaseDetector:
 
             # Store mask prototype if needed
             frame_id = int(frame_ids[image_index]) if frame_ids else image_index
-            if mask_proto is not None and mask_proto.shape[0] > image_index:
+            if (
+                not self.disable_masks
+                and mask_proto is not None
+                and mask_proto.shape[0] > image_index
+            ):
                 proto_slice = mask_proto[image_index]
                 self.mask_manager.store_mask_proto(frame_id, tile_id, proto_slice, meta)
 
@@ -529,13 +551,10 @@ class BaseDetector:
                         "meta": {
                             "pad": tuple(meta_payload.get("pad", (0.0, 0.0))),
                             "scale": tuple(meta_payload.get("scale", (1.0, 1.0))),
-                            "original_shape": tuple(
-                                meta_payload.get(
-                                    "global_shape",
-                                    meta_payload.get("original_shape", (0, 0)),
-                                )
-                            ),
+                            "original_shape": tuple(meta_payload.get("original_shape", (0, 0))),
+                            "global_shape": tuple(meta_payload.get("global_shape", (0, 0))),
                             "offset": tuple(meta_payload.get("tile_offset", (0.0, 0.0))),
+                            "scale_up": float(meta_payload.get("scale_up", 1.0)),
                             "imgsz": self.imgsz,
                         },
                     }
@@ -615,7 +634,20 @@ class BaseDetector:
                 "frame_height": list(frame_heights),
                 "is_confident": confident,
                 "mask": mask_values,
-            }
+            },
+            schema={
+                "frame": pl.Int64,
+                "x1": pl.Float64,
+                "y1": pl.Float64,
+                "x2": pl.Float64,
+                "y2": pl.Float64,
+                "confidence": pl.Float64,
+                "object_class": pl.Int64,
+                "frame_width": pl.Int64,
+                "frame_height": pl.Int64,
+                "is_confident": pl.Boolean,
+                "mask": pl.Int64,
+            },
         )
 
 
@@ -738,7 +770,7 @@ class FrameDetector(BaseDetector):
             fps = rate_tracker.record(len(batch), batch_duration)
             if total_frames_meta > 0:
                 remaining_frames = max(total_frames_meta - processed_frames, 0)
-                percentage = int(min(100, (processed_frames / total_frames_meta) * 100))
+                percentage = min(100.0, round((processed_frames / total_frames_meta) * 100, 2))
                 prefix = (
                     f"Processed batch {processed_batches}/{total_batches}"
                     if total_batches
@@ -746,7 +778,7 @@ class FrameDetector(BaseDetector):
                 )
                 message = format_progress_message(prefix, fps, remaining_frames)
             else:
-                percentage = min(99, max(1, processed_batches))
+                percentage = float(min(99, max(1, processed_batches)))
                 message = format_progress_message(
                     f"Processed {processed_frames} frames",
                     fps,

@@ -74,6 +74,10 @@ def preprocess_image(image: np.ndarray, imgsz: int) -> tuple[np.ndarray, dict]:
         "scale": scale,
         "pad": pad,
         "original_shape": original_shape,
+        "global_shape": original_shape,
+        "tile_id": 0,
+        "tile_offset": (0.0, 0.0),
+        "scale_up": 1.0,
     }
 
     return image, meta

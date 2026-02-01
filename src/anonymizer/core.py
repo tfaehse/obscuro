@@ -96,6 +96,7 @@ class Anonymizer(CancellationMixin):
             sahi_overlap_ratio=self.config.detection.sahi_overlap_ratio,
             execution_providers=execution_providers,
             categories_to_blur=self.config.detection.classes_to_blur,
+            disable_masks=self.config.detection.disable_masks,
         )
 
         # Create tracker using factory (video_source will be set later)

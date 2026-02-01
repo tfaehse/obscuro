@@ -161,10 +161,10 @@ class BaseTracker:
             if self.progress_callback:
                 remaining = max(total_frames - processed_frames, 0) if total_frames > 0 else None
                 if total_frames > 0:
-                    percentage = int(min(100, (processed_frames / total_frames) * 100))
+                    percentage = min(100.0, round((processed_frames / total_frames) * 100, 2))
                     prefix = f"Processed frame {processed_frames}/{total_frames}"
                 else:
-                    percentage = min(99, processed_frames)
+                    percentage = float(min(99, processed_frames))
                     prefix = f"Processed frame {processed_frames}"
                 message = format_progress_message(prefix, fps, remaining)
                 self.progress_callback(percentage, "Tracking", message)

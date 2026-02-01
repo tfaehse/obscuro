@@ -20,7 +20,7 @@ class CancellationMixin:
         if self.cancel_event and self.cancel_event.is_set():
             raise CancellationException("Operation was cancelled")
 
-    def safe_progress_update(self, percent: int, stage: str, message: str):
+    def safe_progress_update(self, percent: float, stage: str, message: str):
         """Update progress and check for cancellation."""
         self.check_cancellation()
         if self.progress_callback:

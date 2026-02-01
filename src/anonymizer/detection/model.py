@@ -8,7 +8,7 @@ from typing import Any
 
 import onnxruntime as ort
 
-from anonymizer.paths import get_detection_models_dir
+from anonymizer.paths import ensure_required_models_present, get_detection_models_dir
 
 DEFAULT_MODELS_DIR = get_detection_models_dir()
 logger = logging.getLogger("obscuro.detection.model")
@@ -19,6 +19,7 @@ class ModelLoader:
 
     def __init__(self, model_path: Path | str, execution_providers: list[str] | None = None):
         self.model_path = Path(model_path)
+        logger.warning(f"Using model: {self.model_path}")
         self.requested_execution_providers, self.session_opts = self._get_execution_providers(
             execution_providers
         )
@@ -102,12 +103,24 @@ class ModelLoader:
         candidates: Iterable[Path]
         candidates = (path,) if path.is_absolute() else (path, DEFAULT_MODELS_DIR / path)
 
-        for candidate in candidates:
-            if candidate.exists():
-                resolved = candidate.resolve()
-                logger.debug("Resolved detector model path to %s", resolved)
-                self.model_path = resolved
-                return resolved
+        def try_candidates() -> Path | None:
+            for candidate in candidates:
+                if candidate.exists():
+                    resolved = candidate.resolve()
+                    logger.debug("Resolved detector model path to %s", resolved)
+                    self.model_path = resolved
+                    return resolved
+            return None
+
+        resolved = try_candidates()
+        if resolved:
+            return resolved
+
+        # Populate bundled models into the default directory and retry.
+        ensure_required_models_present()
+        resolved = try_candidates()
+        if resolved:
+            return resolved
 
         search_paths = ", ".join(str(p.resolve()) for p in candidates)
         hint = (
