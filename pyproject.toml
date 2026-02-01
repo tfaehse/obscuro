@@ -190,8 +190,12 @@ package-dir = {"" = "src"}
 include = ["anonymizer", "anonymizer.*", "blur_api", "blur_api.*", "blur_cli", "blur_cli.*"]
 where = ["src"]
 
-[tool.ty]
-files = ["src/anonymizer"]
+[tool.ty.environment]
+python-version = "3.12"
+root = ["./src"]
+
+[tool.ty.src]
+include = ["src/**/*.py"]
 
 [tool.uv]
 package = true
