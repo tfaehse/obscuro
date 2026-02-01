@@ -33,8 +33,9 @@ class JSONFormatter(logging.Formatter):
             log_entry["exception"] = self.formatException(record.exc_info)
 
         # Add extra fields if present
-        if hasattr(record, "extra_fields"):
-            log_entry.update(record.extra_fields)
+        extra_fields = getattr(record, "extra_fields", None)
+        if isinstance(extra_fields, dict):
+            log_entry.update(extra_fields)
 
         return json.dumps(log_entry)
 

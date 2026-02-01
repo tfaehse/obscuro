@@ -67,6 +67,7 @@ def _trajectory_alignment_error(
             forward_errors.append(delta / max(gap + k + 1, 1))
     else:
         for k in range(forward_steps):
+            assert velocity_prev is not None
             predicted = last_center + velocity_prev * (gap + k + 1)
             delta = float(np.linalg.norm(predicted - centers_next[k]))
             forward_errors.append(delta / max(gap + k + 1, 1))
@@ -79,6 +80,7 @@ def _trajectory_alignment_error(
             backward_errors.append(delta / max(k + 1, 1))
     else:
         for k in range(backward_steps):
+            assert velocity_next is not None
             predicted = first_center - velocity_next * (k + 1)
             delta = float(np.linalg.norm(predicted - centers_prev[-(k + 1)]))
             backward_errors.append(delta / max(k + 1, 1))

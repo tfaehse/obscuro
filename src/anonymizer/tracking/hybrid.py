@@ -4,6 +4,7 @@ import contextlib
 import logging
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any, cast
 
 import cv2
 import numpy as np
@@ -207,7 +208,8 @@ class HybridSOTTracker(FusedTracker):
                 self._describe_frame(frame),
             )
         try:
-            return track.visual_tracker.update(frame)
+            tracker = cast(Any, track.visual_tracker)
+            return tracker.update(frame)
         except cv2.error as exc:
             logger.warning(
                 "Visual tracker update failed for track %s (%s): %s",
@@ -295,7 +297,7 @@ class HybridSOTTracker(FusedTracker):
                         self._describe_frame(frame),
                     )
                 ok, bbox = self._run_visual_tracker_update(track, frame)
-                if ok:
+                if ok and bbox is not None:
                     if self._embedding_model is not None:
                         with contextlib.suppress(Exception):
                             patch = crop_patch(

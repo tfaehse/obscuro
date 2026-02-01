@@ -10,6 +10,7 @@ from typing import Any
 import cv2
 import numpy as np
 import polars as pl
+from PIL import Image
 from sahi.slicing import slice_image
 
 from anonymizer.detection.core import BaseDetector
@@ -101,7 +102,7 @@ class SahiDetector(BaseDetector):
         width_list: list[int] = []
         height_list: list[int] = []
         threshold_list: list[float] = []
-        mask_payloads: list[dict[str, Any] | None] = []
+        mask_payloads: list[int | None] = []
 
         target_width = float(original_width) if original_width is not None else float(frame_width)
         target_height = (
@@ -184,23 +185,25 @@ class SahiDetector(BaseDetector):
         original_height, original_width = prepared.shape[:2]
         prepared, downscale = self._downscale_for_sahi(prepared)
         scale_up = 1.0 / downscale if downscale != 0 else 1.0
-        tiles = slice_image(
-            image=prepared,
+        tile_result = slice_image(
+            image=Image.fromarray(prepared.astype(np.uint8)),
             slice_height=self.imgsz,
             slice_width=self.imgsz,
             overlap_height_ratio=self.sahi_overlap_ratio,
             overlap_width_ratio=self.sahi_overlap_ratio,
         )
+        tiles = tile_result.sliced_image_list
         if not tiles:
             return self._empty_result_df()
 
         metas: list[dict[str, Any]] = []
         tensors: list[np.ndarray] = []
         for tile_id, tile in enumerate(tiles):
-            pre, meta = preprocess_image(tile["image"], self.imgsz)
+            tile_image = np.asarray(tile.image)
+            pre, meta = preprocess_image(tile_image, self.imgsz)
             meta["tile_offset"] = (
-                float(tile["starting_pixel"][0]),
-                float(tile["starting_pixel"][1]),
+                float(tile.starting_pixel[0]),
+                float(tile.starting_pixel[1]),
             )
             meta["tile_id"] = tile_id
             meta["global_shape"] = prepared.shape[:2]
@@ -296,7 +299,7 @@ class SahiDetector(BaseDetector):
             if df is not None:
                 results.append(df)
             if total_frames:
-                percentage = round(((idx + 1) / total_frames) * 100, 2)
+                percentage = int(round(((idx + 1) / total_frames) * 100, 2))
                 self._report_progress(percentage, f"Processed frame {idx + 1}/{total_frames}.")
 
         self._report_progress(100, "Batch array processing complete")
@@ -351,14 +354,14 @@ class SahiDetector(BaseDetector):
             fps = rate_tracker.record(len(batch), batch_duration)
             if total_frames_meta > 0:
                 remaining_frames = max(total_frames_meta - processed_frames, 0)
-                percentage = min(100.0, round((processed_frames / total_frames_meta) * 100, 2))
+                percentage = int(min(100.0, round((processed_frames / total_frames_meta) * 100, 2)))
                 message = format_progress_message(
                     f"Processed {processed_frames}/{total_frames_meta} frames",
                     fps,
                     remaining_frames,
                 )
             else:
-                percentage = float(min(99, max(1, processed_frames)))
+                percentage = int(min(99, max(1, processed_frames)))
                 message = format_progress_message(
                     f"Processed {processed_frames} frames",
                     fps,

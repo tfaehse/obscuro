@@ -13,6 +13,8 @@ from anonymizer.paths import ensure_required_models_present, get_detection_model
 DEFAULT_MODELS_DIR = get_detection_models_dir()
 logger = logging.getLogger("obscuro.detection.model")
 
+ExecutionProvider = str | tuple[str, dict[str, str]]
+
 
 class ModelLoader:
     """Handles loading of ONNX models and execution provider configuration."""
@@ -34,20 +36,20 @@ class ModelLoader:
 
     def _get_execution_providers(
         self, forced_providers: list[str] | None = None
-    ) -> tuple[list[str], ort.SessionOptions]:
+    ) -> tuple[list[ExecutionProvider], Any]:
         """
         Get execution providers for ONNX Runtime.
 
         :param forced_providers: If provided, use these providers directly.
         :return: Tuple of (providers list, session options)
         """
-        so = ort.SessionOptions()
+        so = ort.SessionOptions() if hasattr(ort, "SessionOptions") else None
 
         if forced_providers:
             logger.info(f"Using forced execution providers: {forced_providers}")
             return forced_providers, so
 
-        providers = ort.get_available_providers()
+        providers = ort.get_available_providers() if hasattr(ort, "get_available_providers") else []
         if "CUDAExecutionProvider" in providers:
             logger.info("Using CUDAExecutionProvider")
             providers = ["CUDAExecutionProvider"]
@@ -88,7 +90,7 @@ class ModelLoader:
         return providers, so
 
     def _load_model(
-        self, model_path: Path | str, providers: list[str], session_opts: ort.SessionOptions
+        self, model_path: Path | str, providers: list[ExecutionProvider], session_opts: Any
     ) -> Any:
         path = self._resolve_model_path(model_path)
         with contextlib.suppress(Exception):
@@ -140,7 +142,7 @@ class ModelLoader:
             if isinstance(providers, list | tuple):
                 raw_providers = [str(p) for p in providers]
         if not raw_providers:
-            raw_providers = list(self.requested_execution_providers)
+            raw_providers = [str(p) for p in self.requested_execution_providers]
         return raw_providers
 
     def _get_input_name(self) -> str:

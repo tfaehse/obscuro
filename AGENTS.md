@@ -41,6 +41,7 @@ Obscuro is a desktop-first video anonymization tool (FastAPI backend + CLI + Ele
 - Prefer `polars` over `pandas`.
 - Inference speed is critical; avoid on-the-fly mask decoding.
 - Keep logical steps (tracking, etc.) in relative coordinates so parameters generalize across input sizes.
+- Do not guard against missing dependencies; crash if a required dependency is missing.
 
 ## Notes
 - The Electron build bundles backend assets from the repo; see `src/frontend/package.json` `build.extraResources`.

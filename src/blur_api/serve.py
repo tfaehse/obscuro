@@ -237,14 +237,14 @@ def get_or_create_gpu_anonymizer(
     if gpu_anonymizer_instance is None:
         raise RuntimeError("Failed to initialise GPU anonymizer instance")
 
-    gpu_anonymizer_instance.set_runtime_hooks(
-        cancel_event=cancel_event, progress_callback=progress_callback
-    )
+    instance = gpu_anonymizer_instance
+    assert instance is not None
+    instance.set_runtime_hooks(cancel_event=cancel_event, progress_callback=progress_callback)
 
     if cancel_event is not None:
         cancel_event.clear()
 
-    return gpu_anonymizer_instance
+    return instance
 
 
 def get_or_create_cpu_anonymizer(
@@ -271,14 +271,14 @@ def get_or_create_cpu_anonymizer(
     if cpu_anonymizer_instance is None:
         raise RuntimeError("Failed to initialise CPU anonymizer instance")
 
-    cpu_anonymizer_instance.set_runtime_hooks(
-        cancel_event=cancel_event, progress_callback=progress_callback
-    )
+    instance = cpu_anonymizer_instance
+    assert instance is not None
+    instance.set_runtime_hooks(cancel_event=cancel_event, progress_callback=progress_callback)
 
     if cancel_event is not None:
         cancel_event.clear()
 
-    return cpu_anonymizer_instance
+    return instance
 
 
 def is_gpu_busy() -> bool:

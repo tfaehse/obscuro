@@ -6,7 +6,7 @@ import os
 import threading
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import polars as pl
@@ -312,9 +312,9 @@ class Anonymizer(CancellationMixin):
 
         return tracks
 
-    def _collect_track_centers_snapshot(self, history: list) -> list[dict[str, float]]:
+    def _collect_track_centers_snapshot(self, history: list) -> list[dict[str, float | int | str]]:
         """Extract normalized center positions for plotting."""
-        snapshot: list[dict[str, float]] = []
+        snapshot: list[dict[str, float | int | str]] = []
         for obs in history:
             track_id = getattr(obs, "track_id", None)
             frame = getattr(obs, "frame", None)
@@ -346,8 +346,8 @@ class Anonymizer(CancellationMixin):
     def _maybe_write_tracking_debug_plot(
         self,
         video_path: Path | str | None,
-        pre_data: list[dict[str, float]],
-        post_data: list[dict[str, float]],
+        pre_data: list[dict[str, float | int | str]],
+        post_data: list[dict[str, float | int | str]],
     ) -> None:
         """Emit a Plotly plot of track centers when BLUR_DEBUG_TRACK_PLOT is set."""
         if not pre_data and not post_data:
@@ -355,7 +355,7 @@ class Anonymizer(CancellationMixin):
         if video_path is None:
             return
 
-        if go is None:
+        if go is None or qualitative is None or make_subplots is None:
             logger.warning("Plotly not installed, skipping debug plot")
             return
 
@@ -363,7 +363,7 @@ class Anonymizer(CancellationMixin):
         output_file = output_path.with_name(f"{output_path.stem}_tracks.html")
 
         color_palette = (
-            list(qualitative.Plotly)
+            list(getattr(qualitative, "Plotly", []))
             + list(getattr(qualitative, "Safe", []))
             + list(getattr(qualitative, "Dark24", []))
             + list(getattr(qualitative, "Light24", []))
@@ -380,7 +380,7 @@ class Anonymizer(CancellationMixin):
 
         for dataset in (pre_data, post_data):
             for row in dataset:
-                assign_color(row["track_key"])
+                assign_color(str(row["track_key"]))
 
         figure = make_subplots(
             rows=1,
@@ -389,7 +389,7 @@ class Anonymizer(CancellationMixin):
             subplot_titles=("Center X vs Frame", "Center Y vs Frame"),
         )
 
-        stages: list[tuple[str, list[dict[str, float]], str]] = [
+        stages: list[tuple[str, list[dict[str, float | int | str]], str]] = [
             ("pre-link", pre_data, "dot"),
             ("post-link", post_data, "solid"),
         ]
@@ -397,14 +397,15 @@ class Anonymizer(CancellationMixin):
         for stage_name, data, dash in stages:
             if not data:
                 continue
-            tracks: dict[str, list[dict[str, float]]] = {}
+            tracks: dict[str, list[dict[str, float | int | str]]] = {}
             for row in data:
-                tracks.setdefault(row["track_key"], []).append(row)
+                track_key = str(row["track_key"])
+                tracks.setdefault(track_key, []).append(row)
             for track_key, entries in tracks.items():
                 entries.sort(key=lambda item: item["frame"])
-                frames = [item["frame"] for item in entries]
-                centers_x = [item["center_x"] for item in entries]
-                centers_y = [item["center_y"] for item in entries]
+                frames = [float(item["frame"]) for item in entries]
+                centers_x = [float(item["center_x"]) for item in entries]
+                centers_y = [float(item["center_y"]) for item in entries]
                 color = assign_color(track_key)
                 hover_base = (
                     f"stage={stage_name}<br>track={track_key}<br>frame=%{{y}}<br>center=%{{x:.3f}}"
@@ -606,7 +607,7 @@ class Anonymizer(CancellationMixin):
 
             if isinstance(input_item, np.ndarray):
                 # Process array input
-                result = self.blur_image_array(input_item)
+                result = self.blur_image_array(cast(NDArrayUint8, input_item))
                 results.append(result)
             elif isinstance(input_item, Path):
                 # Process file input

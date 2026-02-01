@@ -11,7 +11,7 @@ from collections import OrderedDict
 from collections.abc import Iterable, Mapping
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 import toml
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
@@ -460,7 +460,7 @@ def get_config() -> AnonymizerConfig:
     global _config_instance
     if _config_instance is None:
         _config_instance = AnonymizerConfig()
-    return cast(AnonymizerConfig, _config_instance)
+    return _config_instance
 
 
 def set_config(config: AnonymizerConfig) -> None:
@@ -519,9 +519,9 @@ def load_config(
     """
     config = AnonymizerConfig.from_toml(config_path) if config_path else AnonymizerConfig()
 
-    if overrides:
+    if overrides is not None:
         if isinstance(overrides, Mapping):
-            config = apply_overrides(config, overrides)
+            config = apply_overrides(config, dict(overrides))
         else:
             config = with_overrides(config, *list(overrides))
 

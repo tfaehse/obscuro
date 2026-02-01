@@ -71,7 +71,7 @@ class EmbeddingModel:
         chw = np.transpose(arr, (2, 0, 1))
         batch = np.expand_dims(chw, 0)
         outputs = self._run(None, {self.input_name: batch})
-        emb = outputs[0]
+        emb = np.asarray(outputs[0])
         if emb.ndim > 2:
             emb = np.reshape(emb, (emb.shape[0], -1))
         return emb[0].astype(np.float32)

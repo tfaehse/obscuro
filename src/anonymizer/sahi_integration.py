@@ -5,6 +5,7 @@ from typing import Any
 
 import numpy as np
 import polars as pl
+from PIL import Image
 from sahi.models.base import DetectionModel
 from sahi.postprocess.combine import NMMPostprocess
 from sahi.predict import PredictionResult
@@ -13,6 +14,7 @@ from sahi.slicing import slice_image
 
 from anonymizer.constants import DEFAULT_CATEGORY_MAPPING
 from anonymizer.detection.core import BaseDetector
+from anonymizer.detection.utils import preprocess_image
 
 
 class SahiOnnxDetectionModel(DetectionModel):
@@ -62,8 +64,12 @@ class SahiOnnxDetectionModel(DetectionModel):
         if self.model is None or self._input_name is None:
             raise RuntimeError("SAHI model is not initialised")
 
-        input_tensor, meta = self.detector._preprocess(image)  # pylint: disable=protected-access
-        outputs = self.model.run(None, {self._input_name: input_tensor})
+        input_tensor, meta = preprocess_image(image, self.detector.imgsz)
+        model = self.model
+        input_name = self._input_name
+        if model is None or input_name is None:
+            raise RuntimeError("SAHI model is not initialised")
+        outputs = model.run(None, {input_name: input_tensor})
 
         self._last_meta = [meta]
         dataframe = self.detector._postprocess(outputs, [meta], frame_ids=[0])  # pylint: disable=protected-access
@@ -91,13 +97,14 @@ class SahiOnnxDetectionModel(DetectionModel):
         overlap_width_ratio: float,
     ) -> list[ObjectPrediction]:
         """Run tiled inference and return raw object predictions for each slice."""
-        slices = slice_image(
-            image=image,
+        slice_result = slice_image(
+            image=Image.fromarray(image.astype(np.uint8)),
             slice_height=slice_height,
             slice_width=slice_width,
             overlap_height_ratio=overlap_height_ratio,
             overlap_width_ratio=overlap_width_ratio,
         )
+        slices = slice_result.sliced_image_list
         if not slices:
             self._original_predictions = self._empty_dataframe()
             self._object_prediction_list_per_image = [[]]
@@ -105,18 +112,23 @@ class SahiOnnxDetectionModel(DetectionModel):
 
         tile_bs = max(1, int(self.tile_batch_size))
         all_object_predictions: list[ObjectPrediction] = []
+        model = self.model
+        input_name = self._input_name
+        if model is None or input_name is None:
+            raise RuntimeError("SAHI model is not initialised")
         for i in range(0, len(slices), tile_bs):
             chunk = slices[i : i + tile_bs]
             tiles = []
             offsets = []
             metas = []
             for tile in chunk:
-                pre, meta = self.detector._preprocess(tile["image"])
+                tile_image = np.asarray(tile.image)
+                pre, meta = preprocess_image(tile_image, self.detector.imgsz)
                 tiles.append(pre[0])
                 metas.append(meta)
-                offsets.append((tile["starting_pixel"][0], tile["starting_pixel"][1]))
+                offsets.append((tile.starting_pixel[0], tile.starting_pixel[1]))
             batch_tensor = np.stack(tiles, axis=0)
-            outputs = self.model.run(None, {self._input_name: batch_tensor})
+            outputs = model.run(None, {input_name: batch_tensor})
             frame_ids = list(range(len(metas)))
             df_chunk = self.detector._postprocess(outputs, metas, frame_ids=frame_ids)
             for j in range(len(chunk)):
@@ -277,10 +289,16 @@ class SahiOnnxDetectionModel(DetectionModel):
 
             predictions: list[ObjectPrediction] = []
             for row in frame_df.iter_rows(named=True):
-                bbox = [float(row["x1"]), float(row["y1"]), float(row["x2"]), float(row["y2"])]
+                bbox = [
+                    int(round(float(row["x1"]))),
+                    int(round(float(row["y1"]))),
+                    int(round(float(row["x2"]))),
+                    int(round(float(row["y2"]))),
+                ]
                 category_id = int(row["object_class"])
                 score = float(row["confidence"])
-                category_name = self.category_mapping.get(str(category_id), str(category_id))
+                category_mapping = self.category_mapping or {}
+                category_name = category_mapping.get(str(category_id), str(category_id))
 
                 predictions.append(
                     ObjectPrediction(

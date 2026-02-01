@@ -44,7 +44,7 @@ class ActiveTrack:
     debug_color: tuple[int, int, int] | None = None
     vt_embeddings: list[np.ndarray] = field(default_factory=list, repr=False)
     vt_embedding_rep: np.ndarray | None = field(default=None, repr=False)
-    mask: dict[str, object] | None = None
+    mask: int | None = None
 
     def current_tlwh(self) -> np.ndarray:
         if self.smoothed_tlwh is not None:

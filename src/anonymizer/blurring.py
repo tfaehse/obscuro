@@ -487,7 +487,7 @@ class Blurrer:
         shifted[:, 0] -= x_min
         shifted[:, 1] -= y_min
         mask = np.zeros((roi_h, roi_w), dtype=np.uint8)
-        cv2.fillPoly(mask, [shifted.astype(np.int32)], 1)
+        cv2.fillPoly(mask, [shifted.astype(np.int32)], (1,))
         if not np.any(mask):
             return None
         return {"mask": mask.astype(bool), "x1": x_min, "y1": y_min}

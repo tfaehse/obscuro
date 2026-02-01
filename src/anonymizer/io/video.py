@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from fractions import Fraction
 from pathlib import Path
 from queue import Queue
@@ -94,10 +94,10 @@ def get_video_info(path: str | Path) -> dict:
 def blur_video_av(
     input_path: str | Path,
     output_path: str | Path,
-    blur_func: callable,
+    blur_func: Callable[[np.ndarray, int], np.ndarray],
     codec: str = "h264",
     quality: int | None = None,
-    progress_callback: callable | None = None,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> None:
     """Process a video frame-by-frame using PyAV."""
 
@@ -108,9 +108,12 @@ def blur_video_av(
 
     try:
         v_in = in_container.streams.video[0]
-        total_frames = (
-            v_in.frames if v_in.frames else int(v_in.average_rate * v_in.duration * v_in.time_base)
-        )
+        if v_in.frames:
+            total_frames = int(v_in.frames)
+        elif v_in.average_rate and v_in.duration and v_in.time_base:
+            total_frames = int(v_in.average_rate * v_in.duration * v_in.time_base)
+        else:
+            total_frames = 0
 
         if v_in.average_rate:
             fps_rate = v_in.average_rate
@@ -190,9 +193,9 @@ class VideoProcessor:
         self,
         input_path: str | Path,
         output_path: str | Path,
-        frame_processor: callable,
+        frame_processor: Callable[[np.ndarray, int], np.ndarray],
         codec: str = "h264",
-        progress_callback: callable | None = None,
+        progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> None:
         blur_video_av(
             input_path=input_path,

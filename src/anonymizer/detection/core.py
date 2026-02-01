@@ -239,7 +239,7 @@ class BaseDetector:
 
         # Assume video
         info = get_video_info(path)
-        total_frames = info.total_frames
+        total_frames = int(info.get("frame_count") or 0)
 
         dfs = []
         processed_frames = 0
@@ -247,14 +247,17 @@ class BaseDetector:
         # Use batch size from config or default
         batch_size = getattr(self, "batch_size", 8)
 
-        for batch, frame_indices in iter_frame_batches(path, batch_size):
+        for batch in iter_frame_batches(path, batch_size):
             self._check_cancelled()
 
-            # batch is list of np.ndarray (H, W, C)
-            # frame_indices is list of int
+            if not batch:
+                continue
+            # batch is list of (frame_idx, np.ndarray)
+            frame_indices = [idx for idx, _ in batch]
+            frames = [frame for _, frame in batch]
 
             # Detect on batch
-            df = self._detect_from_list(batch, frame_ids=frame_indices)
+            df = self._detect_from_list(frames, frame_ids=frame_indices)
             dfs.append(df)
 
             processed_frames += len(batch)
@@ -496,7 +499,7 @@ class BaseDetector:
         width_list: list[int] = []
         height_list: list[int] = []
         threshold_list: list[float] = []
-        mask_payloads: list[dict[str, Any] | None] = []
+        mask_payloads: list[int | None] = []
 
         # Iterate over kept indices and their contribution groups
         # contrib_groups corresponds to keep_indices in order
@@ -601,7 +604,7 @@ class BaseDetector:
         frame_widths: Iterable[int],
         frame_heights: Iterable[int],
         thresholds: Iterable[float],
-        masks: Iterable[dict[str, Any] | None] | None = None,
+        masks: Iterable[int | None] | None = None,
     ) -> pl.DataFrame:
         frame_list = list(frames)
         if not frame_list:
@@ -770,7 +773,7 @@ class FrameDetector(BaseDetector):
             fps = rate_tracker.record(len(batch), batch_duration)
             if total_frames_meta > 0:
                 remaining_frames = max(total_frames_meta - processed_frames, 0)
-                percentage = min(100.0, round((processed_frames / total_frames_meta) * 100, 2))
+                percentage = int(min(100.0, round((processed_frames / total_frames_meta) * 100, 2)))
                 prefix = (
                     f"Processed batch {processed_batches}/{total_batches}"
                     if total_batches
@@ -778,7 +781,7 @@ class FrameDetector(BaseDetector):
                 )
                 message = format_progress_message(prefix, fps, remaining_frames)
             else:
-                percentage = float(min(99, max(1, processed_batches)))
+                percentage = int(min(99, max(1, processed_batches)))
                 message = format_progress_message(
                     f"Processed {processed_frames} frames",
                     fps,
