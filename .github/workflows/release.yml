@@ -160,44 +160,43 @@ jobs:
     - name: Download all artifacts
       uses: actions/download-artifact@v4
 
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
-        draft: false
-        prerelease: false
-
-    - name: Upload Release Assets
+    - name: Prepare Linux binary archive
+      if: always()
       run: |
-        # Upload Python packages
-        for file in dist-ubuntu-latest/*.whl dist-ubuntu-latest/*.tar.gz; do
-          if [ -f "$file" ]; then
-            gh release upload ${{ github.ref }} "$file"
-          fi
-        done
-
-        # Upload binaries
         if [ -d "binaries-ubuntu-latest" ]; then
           cd binaries-ubuntu-latest
           tar -czf ../blur-gui-linux-x64.tar.gz .
-          gh release upload ${{ github.ref }} ../blur-gui-linux-x64.tar.gz
         fi
 
+    - name: Prepare macOS binary archive
+      if: always()
+      run: |
         if [ -d "binaries-macos-latest" ]; then
           cd binaries-macos-latest
           tar -czf ../blur-gui-macos-x64.tar.gz .
-          gh release upload ${{ github.ref }} ../blur-gui-macos-x64.tar.gz
         fi
 
+    - name: Prepare Windows binary archive
+      if: always()
+      run: |
         if [ -d "binaries-windows-latest" ]; then
           cd binaries-windows-latest
           zip -r ../blur-gui-windows-x64.zip .
-          gh release upload ${{ github.ref }} ../blur-gui-windows-x64.zip
         fi
+
+    - name: Create Release and Upload Assets
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ github.ref }}
+        name: Release ${{ github.ref_name }}
+        draft: false
+        prerelease: false
+        files: |
+          dist-ubuntu-latest/*.whl
+          dist-ubuntu-latest/*.tar.gz
+          blur-gui-linux-x64.tar.gz
+          blur-gui-macos-x64.tar.gz
+          blur-gui-windows-x64.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
