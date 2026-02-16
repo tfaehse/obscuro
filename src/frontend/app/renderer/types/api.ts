@@ -28,6 +28,7 @@ export interface DetectionConfig {
   inference_size: number;
   sahi_overlap_ratio: number;
   single_pass: boolean;
+  disable_masks: boolean;
   classes_to_blur: string[];
 }
 
@@ -98,6 +99,7 @@ export interface ConfigOptions {
     current_sahi_overlap: number;
     sahi_overlap_range: [number, number];
     current_single_pass: boolean;
+    current_disable_masks: boolean;
     available_classes: string[];
     current_classes: string[];
     default_blur_classes: string[];

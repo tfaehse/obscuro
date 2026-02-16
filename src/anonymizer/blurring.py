@@ -682,8 +682,8 @@ class Blurrer:
                 for r in rows_without_mask
             ]
             absolute_rois = self._ensure_absolute_rois(boxes, frame_shape)
-            for x1, y1, x2, y2 in absolute_rois:
-                full_mask[y1:y2, x1:x2] = True
+            for x, y, w, h in absolute_rois:
+                full_mask[y : y + h, x : x + w] = True
 
         return full_mask
 

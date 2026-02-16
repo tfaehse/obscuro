@@ -193,6 +193,7 @@ export class Store {
         inference_size: 1920,
         sahi_overlap_ratio: 0.2,
         single_pass: false,
+        disable_masks: false,
         classes_to_blur: ['plate', 'head'],
       },
       tracking: {

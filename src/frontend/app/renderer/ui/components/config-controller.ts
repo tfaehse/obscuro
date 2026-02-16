@@ -146,6 +146,7 @@ export class ConfigController {
     this.bindSectionField('inference-size', 'detection', 'inference_size', v => parseInt(String(v), 10));
     this.bindSectionField('sahi-overlap', 'detection', 'sahi_overlap_ratio', v => parseFloat(String(v)));
     this.bindSectionField('single-pass', 'detection', 'single_pass', v => Boolean(v), () => this.updateSinglePassInputs());
+    this.bindSectionField('disable-masks', 'detection', 'disable_masks', v => Boolean(v));
 
     this.bindSectionField('tracker-type', 'tracking', 'type', v => v as any, () => this.onTrackerTypeChanged());
     this.bindSectionField('track-offline-linker', 'tracking', 'use_offline_linker', v => Boolean(v));
@@ -220,6 +221,7 @@ export class ConfigController {
         inference_size: options.detection.current_inference_size ?? current.detection.inference_size,
         sahi_overlap_ratio: options.detection.current_sahi_overlap ?? current.detection.sahi_overlap_ratio,
         single_pass: options.detection.current_single_pass ?? current.detection.single_pass,
+        disable_masks: options.detection.current_disable_masks ?? current.detection.disable_masks,
         classes_to_blur: selectedClasses,
       },
       tracking: {
@@ -330,6 +332,7 @@ export class ConfigController {
     this.setValue('inference-size', config.detection.inference_size);
     this.setValue('sahi-overlap', config.detection.sahi_overlap_ratio);
     this.setValue('single-pass', config.detection.single_pass);
+    this.setValue('disable-masks', config.detection.disable_masks);
     this.renderClassToggles(
       this.availableClasses,
       config.detection.classes_to_blur,

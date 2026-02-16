@@ -171,7 +171,8 @@ class BaseTracker:
 
         df = pl.DataFrame(outputs) if outputs else pl.DataFrame({})
         if "mask" in df.columns:
-            df = df.with_columns(pl.col("mask").cast(pl.Int64))
+            # Cast to Int64 but preserve nulls (for when masks are disabled)
+            df = df.with_columns(pl.col("mask").cast(pl.Int64, strict=False))
         return df
 
     # ------------------------------------------------------------------

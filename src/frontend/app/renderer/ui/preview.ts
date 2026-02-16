@@ -269,6 +269,7 @@ export class PreviewUI {
             inference_size: config.detection.inference_size,
             sahi_overlap_ratio: config.detection.sahi_overlap_ratio,
             single_pass: config.detection.single_pass,
+            disable_masks: config.detection.disable_masks,
             classes_to_blur: config.detection.classes_to_blur,
           },
           tracking: {
