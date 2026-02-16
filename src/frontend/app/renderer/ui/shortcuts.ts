@@ -72,10 +72,8 @@ export class ShortcutsUI {
     if (!videoElement.paused) {
       // Video is playing - pause it (which will trigger overlay generation)
       videoElement.pause();
-    } else {
-      // Video is paused - toggle overlay visibility
-      store.toggleOverlay();
     }
+    // Always generate overlay when paused - no toggle needed
   }
 
   private handleEnterKey(): void {

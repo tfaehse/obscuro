@@ -15,6 +15,7 @@ export class PreviewUI {
   private pauseIcon: HTMLElement;
   private placeholderImage: HTMLImageElement | null;
   private isGeneratingOverlay = false;
+  private overlayAbortController: AbortController | null = null;
   private currentVideoUrl: string | null = null;
 
   constructor() {
@@ -50,6 +51,7 @@ export class PreviewUI {
     });
 
     this.videoElement.addEventListener('pause', () => {
+      console.log('[Preview] pause event');
       this.generateOverlayForCurrentFrame();
       this.updatePlayPauseButton(true);
     });
@@ -105,11 +107,14 @@ export class PreviewUI {
 
   private setupStoreSubscriptions(): void {
     store.on('video:loaded', ({ file }) => {
+      console.log('[Preview] video:loaded event');
       this.displayVideo(file);
       this.updateControlsState();
       this.setPlaceholderVisible(false);
+      // Pause and generate overlay for first frame when video loads
+      this.videoElement.pause();
+      setTimeout(() => this.generateOverlayForCurrentFrame(), 100);
     });
-
     store.on('video:cleared', () => {
       this.clearVideo();
       this.updateControlsState();
@@ -250,6 +255,12 @@ export class PreviewUI {
       return;
     }
 
+    // Cancel any pending request
+    if (this.overlayAbortController) {
+      this.overlayAbortController.abort();
+    }
+
+    this.overlayAbortController = new AbortController();
     this.isGeneratingOverlay = true;
     this.showLoadingSpinner();
 
@@ -293,6 +304,7 @@ export class PreviewUI {
     } finally {
       this.hideLoadingSpinner();
       this.isGeneratingOverlay = false;
+      this.overlayAbortController = null;
     }
   }
 
@@ -315,7 +327,12 @@ export class PreviewUI {
 
     const frameTime = 1 / videoInfo.fps;
     const newTime = Math.max(0, Math.min(this.videoElement.duration, this.videoElement.currentTime + direction * frameTime));
+    console.log('[Preview] stepFrame:', { direction, newTime, currentTime: this.videoElement.currentTime });
     this.seekToTime(newTime);
+
+    // Pause and generate overlay after frame change
+    this.videoElement.pause();
+    setTimeout(() => this.generateOverlayForCurrentFrame(), 50);
   }
 
   // Playback control methods
