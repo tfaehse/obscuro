@@ -50,6 +50,6 @@ def test_no_logger_in_functions(file_path):
         pytest.skip(f"File {file_path} not found")
 
     loggers_in_functions = get_function_loggers(full_path)
-    assert (
-        not loggers_in_functions
-    ), f"Found logging.getLogger in functions: {loggers_in_functions} in {file_path}"
+    assert not loggers_in_functions, (
+        f"Found logging.getLogger in functions: {loggers_in_functions} in {file_path}"
+    )

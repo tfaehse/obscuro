@@ -471,7 +471,7 @@ class MaskManager:
                     m_data = mask["mask"]
                     if m_data.size > 0:
                         h, w = m_data.shape
-                        new_h, new_w = int(round(h * scale_up)), int(round(w * scale_up))
+                        new_h, new_w = round(h * scale_up), round(w * scale_up)
                         if new_h > 0 and new_w > 0:
                             m_resized = cv2.resize(
                                 m_data.astype(np.uint8),
@@ -479,8 +479,8 @@ class MaskManager:
                                 interpolation=cv2.INTER_NEAREST,
                             ).astype(bool)
                             mask["mask"] = m_resized
-                            mask["x1"] = int(round(mask["x1"] * scale_up))
-                            mask["y1"] = int(round(mask["y1"] * scale_up))
+                            mask["x1"] = round(mask["x1"] * scale_up)
+                            mask["y1"] = round(mask["y1"] * scale_up)
                 results[owner_idx] = _merge_regions(results[owner_idx], mask)
 
         return results

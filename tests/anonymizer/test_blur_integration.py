@@ -88,9 +88,9 @@ class TestBlurIntegration:
         original_region = np.full((20, 20, 3), 255, dtype=np.uint8)
 
         # Blurred region should differ from original
-        assert not np.array_equal(
-            blurred_region, original_region
-        ), "Bounding box region should be blurred"
+        assert not np.array_equal(blurred_region, original_region), (
+            "Bounding box region should be blurred"
+        )
 
     def test_blur_with_boxes_only_two_frames(self):
         """Test that bounding boxes are blurred across multiple frames."""
@@ -114,9 +114,9 @@ class TestBlurIntegration:
             blurred_region = result[10 + y_offset : 30 + y_offset, 10:30]
             original_region = np.full((20, 20, 3), 255, dtype=np.uint8)
 
-            assert not np.array_equal(
-                blurred_region, original_region
-            ), f"Frame {frame_idx}: Bounding box region should be blurred"
+            assert not np.array_equal(blurred_region, original_region), (
+                f"Frame {frame_idx}: Bounding box region should be blurred"
+            )
 
     def test_blur_with_blackout(self):
         """Test that blackout mode works with bounding boxes."""
@@ -159,9 +159,9 @@ class TestBlurIntegration:
         # The region should be modified (pixelated)
         blurred_region = result[20:60, 20:60]
 
-        assert not np.array_equal(
-            blurred_region, original_region
-        ), "Pixelate should modify the region with gradient"
+        assert not np.array_equal(blurred_region, original_region), (
+            "Pixelate should modify the region with gradient"
+        )
 
     def test_blur_multiple_boxes(self):
         """Test blurring multiple bounding boxes."""

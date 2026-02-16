@@ -290,10 +290,10 @@ class SahiOnnxDetectionModel(DetectionModel):
             predictions: list[ObjectPrediction] = []
             for row in frame_df.iter_rows(named=True):
                 bbox = [
-                    int(round(float(row["x1"]))),
-                    int(round(float(row["y1"]))),
-                    int(round(float(row["x2"]))),
-                    int(round(float(row["y2"]))),
+                    round(float(row["x1"])),
+                    round(float(row["y1"])),
+                    round(float(row["x2"])),
+                    round(float(row["y2"])),
                 ]
                 category_id = int(row["object_class"])
                 score = float(row["confidence"])

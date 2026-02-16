@@ -130,7 +130,7 @@ def blur_video_av(
         v_out.height = v_in.height
         v_out.pix_fmt = "yuv420p"
         v_out.bit_rate = v_in.bit_rate
-        output_time_base = Fraction(1, int(round(fps)))
+        output_time_base = Fraction(1, round(fps))
         v_out.time_base = output_time_base
         if hasattr(v_in, "rate"):
             v_out.rate = v_in.rate
