@@ -110,7 +110,6 @@ class TestTrackingConfig:
         assert params.use_low_score_pool is True
         assert params.offline_linker_max_misses == 30
         assert params.offline_linker_per_frame_gate == 0.05
-        assert config.param_overrides() == {}
 
     def test_params_validation_merges_defaults(self):
         """When overriding params partially, defaults should be preserved."""
@@ -125,7 +124,6 @@ class TestTrackingConfig:
         # ensure defaults for ByteTrack applied
         assert params.offline_linker_max_misses == 30
         assert params.offline_linker_per_frame_gate == 0.05
-        assert cfg.param_overrides() == {"max_misses_M": 12}
 
     def test_switching_tracker_type_resets_to_defaults(self):
         """Changing tracker type should discard previous overrides and use new defaults."""
@@ -133,13 +131,13 @@ class TestTrackingConfig:
             type=TrackerType.BYTETRACK,
             params={"max_misses_M": 12, "distance_gate": 0.25},
         )
-        assert cfg.param_overrides() == {"max_misses_M": 12, "distance_gate": 0.25}
+        assert cfg.params["max_misses_M"] == 12
+        assert cfg.params["distance_gate"] == 0.25
 
         cfg.type = TrackerType.DUMMY
 
         dummy_defaults = TrackerParams(**DEFAULT_TRACKER_PARAMS[TrackerType.DUMMY]).model_dump()
         assert cfg.params == dummy_defaults
-        assert cfg.param_overrides() == {}
 
 
 class TestVideoConfig:
@@ -229,7 +227,6 @@ class TestConfigManagement:
         config = load_config()
         assert isinstance(config, AnonymizerConfig)
         assert config.tracking.type == TrackerType.BYTETRACK
-        assert config.tracking.param_overrides() == {}
 
     def test_load_config_with_overrides(self):
         """Test load_config applies overrides on top of defaults."""

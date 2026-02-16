@@ -201,7 +201,10 @@ class Anonymizer(CancellationMixin):
             self.config.tracking.type = tracker_enum
 
         if params:
-            self.config.tracking.update_params(params)
+            # Merge new params with existing and reassign to trigger validation
+            merged = dict(self.config.tracking.params)
+            merged.update(params)
+            self.config.tracking.params = merged
 
         tracker_kwargs = self.config.get_tracker_kwargs()
 

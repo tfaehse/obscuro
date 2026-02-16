@@ -12,6 +12,7 @@ from .config import (
     create_config_template,
     get_config,
     load_config,
+    merge_config,
     with_overrides,
 )
 from .core import Anonymizer
@@ -24,5 +25,6 @@ __all__ = [
     "create_config_template",
     "get_config",
     "load_config",
+    "merge_config",
     "with_overrides",
 ]

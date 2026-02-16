@@ -148,51 +148,47 @@ class TrackerParams(BaseModel):
     drift_gate: float = Field(0.15, ge=0.0, le=2.0)
     process_noise: float = Field(1.0, ge=0.0, le=10.0)
 
+    @classmethod
+    def for_tracker(
+        cls, tracker_type: TrackerType, overrides: dict[str, Any] | None = None
+    ) -> TrackerParams:
+        """Return tracker-specific defaults merged with optional overrides."""
+        base = cls().model_dump()
+        base.update(_TRACKER_OVERRIDES.get(tracker_type, {}))
+        if overrides:
+            base.update(overrides)
+        return cls(**base)
 
-DEFAULT_TRACKER_PARAMS: dict[TrackerType, dict[str, Any]] = {
+
+# Tracker-specific overrides from universal defaults (only values that differ)
+_TRACKER_OVERRIDES: dict[TrackerType, dict[str, Any]] = {
     TrackerType.BYTETRACK: {
         "distance_gate": 0.05,
-        "confirm_after_N": 2,
         "max_misses_M": 10,
-        "offline_linker_max_misses": 30,
-        "offline_linker_per_frame_gate": 0.05,
-        "bbox_dilate_pct": 0.2,
         "temporal_smooth_alpha": 1.0,
         "use_low_score_pool": True,
-        "process_noise": 1.0,
     },
     TrackerType.DUMMY: {
         "confirm_after_N": 1,
         "max_misses_M": 1,
-        "offline_linker_max_misses": 30,
-        "offline_linker_per_frame_gate": 0.05,
-        "ema_alpha": 0.6,
         "bbox_dilate_pct": 0.15,
         "temporal_smooth_alpha": 0.7,
     },
     TrackerType.BOTSORT: {
         "confirm_after_N": 3,
         "max_misses_M": 5,
-        "offline_linker_max_misses": 30,
         "offline_linker_per_frame_gate": 0.025,
-        "bbox_dilate_pct": 0.2,
         "temporal_smooth_alpha": 1.0,
         "use_low_score_pool": True,
-        "distance_gate_hi": 0.05,
-        "distance_gate_lo": 0.02,
         "cam_motion_comp": True,
-        "flow_backend": "LK",
     },
     TrackerType.HYBRID_SOT: {
         "distance_gate": 0.05,
         "confirm_after_N": 5,
         "max_misses_M": 2,
-        "offline_linker_max_misses": 30,
-        "offline_linker_per_frame_gate": 0.05,
         "bbox_dilate_pct": 0.25,
         "temporal_smooth_alpha": 1.0,
         "use_visual_tracker": True,
-        "vt_backend": "TrackerNano",
         "vt_max_age": 10,
         "drift_gate": 0.05,
     },
@@ -200,9 +196,6 @@ DEFAULT_TRACKER_PARAMS: dict[TrackerType, dict[str, Any]] = {
         "distance_gate": 0.1,
         "confirm_after_N": 3,
         "max_misses_M": 5,
-        "offline_linker_max_misses": 30,
-        "offline_linker_per_frame_gate": 0.05,
-        "bbox_dilate_pct": 0.2,
         "temporal_smooth_alpha": 1.0,
         "use_low_score_pool": True,
         "distance_gate_hi": 0.08,
@@ -210,16 +203,28 @@ DEFAULT_TRACKER_PARAMS: dict[TrackerType, dict[str, Any]] = {
     },
     TrackerType.OC_SORT: {
         "distance_gate": 0.05,
-        "confirm_after_N": 2,
         "max_misses_M": 10,
-        "offline_linker_max_misses": 30,
-        "offline_linker_per_frame_gate": 0.05,
-        "bbox_dilate_pct": 0.2,
         "temporal_smooth_alpha": 0.9,
         "use_low_score_pool": True,
-        "process_noise": 1.0,
     },
 }
+
+
+# Deprecated: Use TrackerParams.for_tracker() instead.
+# Kept for backward compatibility with external code and tests.
+# Computed from _TRACKER_OVERRIDES + base defaults to avoid duplication.
+def _build_default_tracker_params() -> dict[TrackerType, dict[str, Any]]:
+    """Build the deprecated DEFAULT_TRACKER_PARAMS from _TRACKER_OVERRIDES."""
+    base = TrackerParams().model_dump()
+    result: dict[TrackerType, dict[str, Any]] = {}
+    for tracker_type in TrackerType:
+        merged = dict(base)
+        merged.update(_TRACKER_OVERRIDES.get(tracker_type, {}))
+        result[tracker_type] = merged
+    return result
+
+
+DEFAULT_TRACKER_PARAMS: dict[TrackerType, dict[str, Any]] = _build_default_tracker_params()
 
 
 class TrackingConfig(BaseModel):
@@ -231,7 +236,6 @@ class TrackingConfig(BaseModel):
         default=True, description="Run an offline linking pass after tracking"
     )
 
-    _overrides: dict[str, Any] = PrivateAttr(default_factory=dict)
     _applied_type: TrackerType | None = PrivateAttr(default=None)
 
     model_config = ConfigDict(validate_assignment=True)
@@ -239,52 +243,22 @@ class TrackingConfig(BaseModel):
     @model_validator(mode="after")
     def _apply_defaults(self) -> TrackingConfig:
         previous_type = self._applied_type
-        defaults = TrackerParams(**DEFAULT_TRACKER_PARAMS.get(self.type, {})).model_dump()
 
         if previous_type is not None and previous_type != self.type:
             # Switching tracker types resets overrides; ignore incoming params payload.
-            overrides: dict[str, Any] = {}
             params_input: dict[str, Any] = {}
         else:
-            overrides = dict(self._overrides)
             params_input = dict(self.params)
 
-        merged = {**defaults, **overrides, **params_input}
-        try:
-            validated = TrackerParams(**merged).model_dump()
-        except (ValueError, TypeError) as exc:  # pragma: no cover - surfaced to caller
-            raise ValueError(f"Invalid tracker params for {self.type.value}: {exc}") from exc
-
-        diff = {key: value for key, value in validated.items() if value != defaults.get(key)}
-
+        # Use TrackerParams.for_tracker() to get defaults + overrides
+        validated = TrackerParams.for_tracker(self.type, params_input).model_dump()
         object.__setattr__(self, "params", validated)
-        object.__setattr__(self, "_overrides", diff)
         object.__setattr__(self, "_applied_type", self.type)
         return self
-
-    def default_params(self) -> TrackerParams:
-        """Return tracker defaults for the currently selected tracker."""
-        return TrackerParams(**DEFAULT_TRACKER_PARAMS.get(self.type, {}))
 
     def effective_params(self) -> TrackerParams:
         """Return defaults combined with overrides (mirrors params contents)."""
         return TrackerParams(**self.params)
-
-    def param_overrides(self) -> dict[str, Any]:
-        """Expose the current parameter overrides relative to the tracker defaults."""
-        return dict(self._overrides)
-
-    def update_params(self, updates: dict[str, Any]) -> None:
-        """Apply parameter overrides relative to the active tracker defaults."""
-        if not updates:
-            return
-        defaults = TrackerParams(**DEFAULT_TRACKER_PARAMS.get(self.type, {})).model_dump()
-        merged = {**defaults, **self._overrides, **updates}
-        validated = TrackerParams(**merged).model_dump()
-        diff = {key: value for key, value in validated.items() if value != defaults.get(key)}
-        object.__setattr__(self, "params", validated)
-        object.__setattr__(self, "_overrides", diff)
-        object.__setattr__(self, "_applied_type", self.type)
 
 
 class VideoConfig(BaseModel):
@@ -344,26 +318,28 @@ class AnonymizerConfig(BaseModel):
 _config_instance: AnonymizerConfig | None = None
 
 
+def merge_config(
+    base: AnonymizerConfig,
+    *overrides: Mapping[str, Any] | None,
+) -> AnonymizerConfig:
+    """Merge overrides into base config and return new instance."""
+    merged = base.model_dump()
+    for override in overrides:
+        if override:
+            merged = _deep_merge(merged, _normalize_overrides(override))
+    return AnonymizerConfig(**merged)
+
+
 class ConfigLayers:
     """
     Helper to compose configuration from an ordered set of override layers.
 
-    Each layer is a mapping that can contain nested data or dotted/__ separated keys.
-    Layers are applied in insertion order on top of the base configuration.
+    Deprecated: Use merge_config() directly for simpler use cases.
     """
 
     def __init__(self, base: AnonymizerConfig | None = None):
         self._base: AnonymizerConfig = base if base is not None else AnonymizerConfig()
         self._layers: OrderedDict[str, Mapping[str, Any]] = OrderedDict()
-
-    @property
-    def base(self) -> AnonymizerConfig:
-        """Access the base configuration (copy to avoid accidental mutation)."""
-        return copy.deepcopy(self._base)
-
-    def set_base(self, base: AnonymizerConfig) -> None:
-        """Replace the base layer."""
-        self._base = base
 
     def set_layer(self, name: str, overrides: Mapping[str, Any] | None) -> None:
         """Insert or replace a named override layer (remove when overrides is None/empty)."""
@@ -376,16 +352,6 @@ class ConfigLayers:
         """Remove a layer by name if present."""
         self._layers.pop(name, None)
 
-    def get_layer(self, name: str) -> Mapping[str, Any] | None:
-        """Return a copy of the requested layer (if any)."""
-        overrides = self._layers.get(name)
-        return copy.deepcopy(overrides) if overrides is not None else None
-
-    def iter_layers(self) -> Iterable[tuple[str, Mapping[str, Any]]]:
-        """Yield (name, overrides) for configured layers in order."""
-        for name, overrides in self._layers.items():
-            yield name, copy.deepcopy(overrides)
-
     def resolve(
         self,
         *extra_overrides: Mapping[str, Any] | None,
@@ -396,43 +362,23 @@ class ConfigLayers:
         Extra overrides (if provided) are applied last without mutating the stored layers.
         """
         merged = self._base.model_dump()
-        for overrides in self._layers.values():
-            merged = _deep_merge(merged, _normalize_overrides(overrides))
-        for overrides in extra_overrides:
-            if overrides:
-                merged = _deep_merge(merged, _normalize_overrides(overrides))
+        for layer_overrides in self._layers.values():
+            merged = _deep_merge(merged, _normalize_overrides(layer_overrides))
+        for extra in extra_overrides:
+            if extra:
+                merged = _deep_merge(merged, _normalize_overrides(extra))
         return AnonymizerConfig(**merged)
 
     def cumulative_overrides(self) -> dict[str, Any]:
         """Return the combined override mapping represented by all layers."""
         combined: dict[str, Any] = {}
-        for overrides in self._layers.values():
-            combined = _deep_merge(combined, _normalize_overrides(overrides))
+        for layer_overrides in self._layers.values():
+            combined = _deep_merge(combined, _normalize_overrides(layer_overrides))
         return combined
-
-    def snapshot(self) -> tuple[AnonymizerConfig, OrderedDict[str, Mapping[str, Any]]]:
-        """Return copies of the current base and layer definitions."""
-        return copy.deepcopy(self._base), OrderedDict(
-            (name, copy.deepcopy(layer)) for name, layer in self._layers.items()
-        )
-
-    def copy(self) -> ConfigLayers:
-        """Clone the layered configuration definition."""
-        clone = ConfigLayers(copy.deepcopy(self._base))
-        for name, overrides in self._layers.items():
-            clone._layers[name] = copy.deepcopy(overrides)
-        return clone
-
-
-def _split_override_key(key: str) -> tuple[str, ...]:
-    if "__" in key:
-        return tuple(part for part in key.split("__") if part)
-    if "." in key:
-        return tuple(part for part in key.split(".") if part)
-    return (key,)
 
 
 def _normalize_overrides(overrides: Mapping[str, Any]) -> dict[str, Any]:
+    """Convert flat keys with dots or __ to nested dicts."""
     normalized: dict[str, Any] = {}
     for raw_key, raw_value in overrides.items():
         if raw_value is None:
@@ -447,13 +393,17 @@ def _normalize_overrides(overrides: Mapping[str, Any]) -> dict[str, Any]:
             else:
                 normalized[raw_key] = child
             continue
-        parts = _split_override_key(raw_key)
+        # Handle dotted or double-underscore keys
+        parts = raw_key.replace("__", ".").split(".")
         target = normalized
         for part in parts[:-1]:
+            if not part:
+                continue
             target = target.setdefault(part, {})
             if not isinstance(target, dict):
                 raise ValueError(f"Override path '{raw_key}' conflicts with existing value")
-        target[parts[-1]] = raw_value
+        if parts[-1]:
+            target[parts[-1]] = raw_value
     return normalized
 
 
