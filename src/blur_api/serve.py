@@ -146,6 +146,9 @@ def get_session_temp_dir() -> Path:
     global _session_temp_dir
     if _session_temp_dir is None:
         _ensure_session_temp_dir()
+    assert _session_temp_dir is not None, (
+        "_ensure_session_temp_dir should have set _session_temp_dir"
+    )
     return _session_temp_dir
 
 

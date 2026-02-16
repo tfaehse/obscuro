@@ -139,7 +139,7 @@ class ModelLoader:
                 providers = self.session.get_providers()
             except Exception:  # pragma: no cover - defensive
                 providers = None
-            if isinstance(providers, list | tuple):
+            if providers is not None and isinstance(providers, list | tuple):
                 raw_providers = [str(p) for p in providers]
         if not raw_providers:
             raw_providers = [str(p) for p in self.requested_execution_providers]
