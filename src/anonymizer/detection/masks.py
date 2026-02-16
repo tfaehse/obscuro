@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 from pydantic import BaseModel, ConfigDict
 
+from anonymizer.paths import get_temp_dir
 from anonymizer.segmentation import decode_yolo_masks
 
 
@@ -44,7 +45,7 @@ class MaskManager:
 
     def __init__(self, imgsz: int):
         self.imgsz = imgsz
-        self._mask_cache_dir = Path(tempfile.mkdtemp(prefix="obscuro_proto_"))
+        self._mask_cache_dir = Path(tempfile.mkdtemp(prefix="obscuro_proto_", dir=get_temp_dir()))
         self._mask_proto_meta: dict[tuple[int, int], dict[str, Any]] = {}
         self._mask_proto_db = self._mask_cache_dir / "mask_proto.sqlite3"
         self._conn = sqlite3.connect(self._mask_proto_db, isolation_level=None)

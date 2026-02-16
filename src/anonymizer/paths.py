@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import tempfile
 from functools import lru_cache
 from pathlib import Path
 
@@ -22,6 +23,19 @@ DEFAULT_MODEL_FILENAMES = {name: f"{name}.onnx" for name in DEFAULT_MODEL_NAMES}
 IMMUTABLE_MODEL_NAMES = set(DEFAULT_MODEL_NAMES)
 DETECTION_MODELS_SUBDIR = "detection"
 TRACKING_MODELS_SUBDIR = "tracking"
+
+
+@lru_cache(maxsize=1)
+def get_temp_dir() -> Path:
+    """Return the platform-appropriate temporary directory.
+
+    This is cached to ensure consistency within a process. The result is
+    platform-appropriate:
+    - Windows: %TEMP% or C:\\Users\\<user>\\AppData\\Local\\Temp
+    - macOS: $TMPDIR or /var/folders/...
+    - Linux: $TMPDIR or /tmp
+    """
+    return Path(tempfile.gettempdir())
 
 
 @lru_cache(maxsize=1)
@@ -154,5 +168,6 @@ __all__ = [
     "get_data_root",
     "get_detection_models_dir",
     "get_models_dir",
+    "get_temp_dir",
     "get_tracking_models_dir",
 ]

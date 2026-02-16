@@ -23,12 +23,13 @@ from anonymizer import (
 )
 from anonymizer.config import (
     BlurType,
-    ConfigLayers,
     TrackerType,
     enforce_model_batch_constraints,
+    merge_config,
     set_config,
 )
 from anonymizer.paths import get_detection_models_dir
+from anonymizer.tempfile_cleanup import cleanup_orphaned_temp_dirs
 from blur_cli.logging_setup import get_progress_logger, log_with_extra, setup_logging
 
 logger = logging.getLogger("obscuro.cli")
@@ -197,18 +198,39 @@ def blur_video(args):
         return 1
 
 
+# Mapping from CLI argument names to config paths (dotted notation)
+CLI_TO_CONFIG_MAP: dict[str, str] = {
+    "blur_type": "blur.type",
+    "blur_strength": "blur.strength",
+    "confidence_threshold": "detection.confidence_threshold",
+    "low_score_threshold": "detection.low_score_threshold",
+    "batch_size": "detection.batch_size",
+    "inference_size": "detection.inference_size",
+    "sahi_overlap": "detection.sahi_overlap_ratio",
+    "single_pass": "detection.single_pass",
+    "disable_masks": "detection.disable_masks",
+    "tracker": "tracking.type",
+    "offline_linker": "tracking.use_offline_linker",
+    "video_codec": "video.codec",
+    "video_quality": "video.quality",
+    "config_debug": "debug",
+    "log_level": "log_level",
+}
+
+
+def _set_nested(target: dict[str, Any], path: str, value: Any) -> None:
+    """Set a value in a nested dict using dotted path."""
+    parts = path.split(".")
+    for part in parts[:-1]:
+        target = target.setdefault(part, {})
+    target[parts[-1]] = value
+
+
 def get_config_for_args(args) -> AnonymizerConfig:
     """Create configuration from command line arguments."""
-    override_tree: dict[str, Any] = {}
+    overrides: dict[str, Any] = {}
 
-    def merge(target: dict[str, Any], update: dict[str, Any]) -> None:
-        for key, value in update.items():
-            if isinstance(value, dict) and isinstance(target.get(key), dict):
-                merge(target[key], value)
-            else:
-                target[key] = value
-
-    # Model overrides
+    # Handle model argument specially (path vs name detection)
     if hasattr(args, "model") and args.model:
         value = args.model.strip()
         candidate = Path(value)
@@ -217,38 +239,32 @@ def get_config_for_args(args) -> AnonymizerConfig:
             or candidate.suffix.lower() == ".onnx"
             or any(sep in value for sep in ("/", "\\"))
         )
-        model_update: dict[str, Any]
         if looks_like_path:
-            model_update = {"model": {"file": candidate, "name": candidate.stem or None}}
+            _set_nested(overrides, "model.file", candidate)
+            _set_nested(overrides, "model.name", candidate.stem or None)
         else:
-            model_update = {"model": {"name": value, "file": None}}
-        merge(override_tree, model_update)
+            _set_nested(overrides, "model.name", value)
+            _set_nested(overrides, "model.file", None)
 
-    blur_overrides: dict[str, Any] = {}
-    if hasattr(args, "blur_type") and args.blur_type:
-        blur_overrides["type"] = BlurType(args.blur_type)
-    if hasattr(args, "blur_strength") and args.blur_strength:
-        blur_overrides["strength"] = args.blur_strength
-    if blur_overrides:
-        merge(override_tree, {"blur": blur_overrides})
+    # Process standard mappings
+    for attr, config_path in CLI_TO_CONFIG_MAP.items():
+        value = getattr(args, attr, None)
+        if value is None:
+            continue
+        # Special type conversions
+        if attr == "blur_type":
+            value = BlurType(value)
+        elif attr == "tracker":
+            value = TrackerType(value)
+        elif attr in ("batch_size", "inference_size", "video_quality"):
+            value = max(1, int(value))
+        elif attr in ("single_pass", "offline_linker", "config_debug", "disable_masks"):
+            value = bool(value)
+        elif attr == "log_level":
+            value = str(value).upper()
+        _set_nested(overrides, config_path, value)
 
-    detection_overrides: dict[str, Any] = {}
-    confidence_arg = getattr(args, "confidence_threshold", None)
-    low_score_arg = getattr(args, "low_score_threshold", None)
-    if confidence_arg is not None:
-        detection_overrides["confidence_threshold"] = confidence_arg
-    if low_score_arg is not None:
-        detection_overrides["low_score_threshold"] = low_score_arg
-    if getattr(args, "disable_masks", False):
-        detection_overrides["disable_masks"] = True
-    if hasattr(args, "batch_size") and args.batch_size is not None:
-        detection_overrides["batch_size"] = max(1, int(args.batch_size))
-    if hasattr(args, "inference_size") and args.inference_size is not None:
-        detection_overrides["inference_size"] = max(256, int(args.inference_size))
-    if hasattr(args, "sahi_overlap") and args.sahi_overlap is not None:
-        detection_overrides["sahi_overlap_ratio"] = args.sahi_overlap
-    if hasattr(args, "single_pass") and args.single_pass is not None:
-        detection_overrides["single_pass"] = bool(args.single_pass)
+    # Handle blur_classes (CSV parsing)
     blur_classes_arg = getattr(args, "blur_classes", None)
     if blur_classes_arg:
         if isinstance(blur_classes_arg, str):
@@ -257,18 +273,14 @@ def get_config_for_args(args) -> AnonymizerConfig:
             classes = [str(cls).strip() for cls in blur_classes_arg if str(cls).strip()]
         else:
             classes = [str(blur_classes_arg).strip()]
-        detection_overrides["classes_to_blur"] = classes
-    if detection_overrides:
-        merge(override_tree, {"detection": detection_overrides})
+        _set_nested(overrides, "detection.classes_to_blur", classes)
 
-    tracking_overrides: dict[str, Any] = {}
-    if hasattr(args, "tracker") and args.tracker:
-        tracking_overrides["type"] = TrackerType(args.tracker)
-    if hasattr(args, "offline_linker") and args.offline_linker is not None:
-        tracking_overrides["use_offline_linker"] = bool(args.offline_linker)
+    # Handle embedding_similarity_gate (goes into tracking.params)
     emb_gate = getattr(args, "embedding_similarity_gate", None)
     if emb_gate is not None and isinstance(emb_gate, int | float | str):
-        tracking_overrides.setdefault("params", {})["embedding_similarity_gate"] = float(emb_gate)
+        _set_nested(overrides, "tracking.params.embedding_similarity_gate", float(emb_gate))
+
+    # Handle tracker_params (JSON object)
     if hasattr(args, "tracker_params") and args.tracker_params:
         try:
             user_params = json.loads(args.tracker_params)
@@ -276,37 +288,13 @@ def get_config_for_args(args) -> AnonymizerConfig:
             raise ValueError(f"Invalid tracker params JSON: {exc}") from exc
         if not isinstance(user_params, dict):
             raise ValueError("Tracker params must be a JSON object")
-        tracking_overrides.setdefault("params", {}).update(user_params)
-    if tracking_overrides:
-        merge(override_tree, {"tracking": tracking_overrides})
+        for key, value in user_params.items():
+            _set_nested(overrides, f"tracking.params.{key}", value)
 
-    video_overrides: dict[str, Any] = {}
-    if hasattr(args, "video_codec") and args.video_codec:
-        video_overrides["codec"] = args.video_codec
-    if hasattr(args, "video_quality") and args.video_quality is not None:
-        video_overrides["quality"] = max(1, int(args.video_quality))
-    if video_overrides:
-        merge(override_tree, {"video": video_overrides})
-
-    global_overrides: dict[str, Any] = {}
-    if getattr(args, "config_debug", None) is not None:
-        global_overrides["debug"] = bool(args.config_debug)
-    if hasattr(args, "log_level") and args.log_level:
-        global_overrides["log_level"] = str(args.log_level).upper()
-    if global_overrides:
-        merge(override_tree, global_overrides)
-
-    # Load base configuration and apply overrides in one pass
+    # Load base configuration and apply overrides
     config_path = getattr(args, "config", None)
-    base_config = load_config(
-        config_path=config_path,
-        overrides=None,
-        apply=False,
-    )
-    layers = ConfigLayers(base_config)
-    if override_tree:
-        layers.set_layer("cli", override_tree)
-    resolved = layers.resolve()
+    base_config = load_config(config_path=config_path, overrides=None, apply=False)
+    resolved = merge_config(base_config, overrides)
     set_config(resolved)
     return resolved
 
@@ -581,6 +569,9 @@ Examples:
     logger = setup_logging(
         log_level=args.log_level, json_log_file=args.json_log, enable_colors=not args.no_colors
     )
+
+    # Clean up orphaned temp directories from crashed processes
+    cleanup_orphaned_temp_dirs()
 
     # Log startup information
     log_with_extra(

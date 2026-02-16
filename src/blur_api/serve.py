@@ -9,7 +9,6 @@ import logging
 import re
 import shutil
 import sys
-import tempfile
 import threading
 import time
 import uuid
@@ -34,7 +33,9 @@ from anonymizer.paths import (
     IMMUTABLE_MODEL_NAMES,
     ensure_required_models_present,
     get_detection_models_dir,
+    get_temp_dir,
 )
+from anonymizer.tempfile_cleanup import cleanup_orphaned_temp_dirs
 from anonymizer.tracking import TRACKER_FACTORY
 
 logger = logging.getLogger("obscuro.api")
@@ -110,13 +111,17 @@ video_jobs: dict[str, dict] = {}
 video_jobs_lock = threading.Lock()
 cancel_events: dict[str, threading.Event] = {}
 
-TEMP_ROOT = Path(tempfile.gettempdir()) / "obscuro_jobs"
+TEMP_ROOT = get_temp_dir() / "obscuro_jobs"
 SESSION_TEMP_DIR = TEMP_ROOT / f"session_{uuid.uuid4().hex}"
 
 
 def _ensure_session_temp_dir() -> None:
     with contextlib.suppress(FileExistsError):
         TEMP_ROOT.mkdir(parents=True, exist_ok=True)
+
+    # Clean up orphaned temp directories from crashed processes
+    cleanup_orphaned_temp_dirs()
+
     SESSION_TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
     # Opportunistically clean up any stale session directories.
