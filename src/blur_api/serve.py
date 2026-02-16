@@ -111,22 +111,28 @@ video_jobs: dict[str, dict] = {}
 video_jobs_lock = threading.Lock()
 cancel_events: dict[str, threading.Event] = {}
 
+# Temporary directory paths
 TEMP_ROOT = get_temp_dir() / "obscuro_jobs"
-SESSION_TEMP_DIR = TEMP_ROOT / f"session_{uuid.uuid4().hex}"
+_session_temp_dir: Path | None = None
 
 
 def _ensure_session_temp_dir() -> None:
+    """Ensure session temp directory exists."""
+    global _session_temp_dir
     with contextlib.suppress(FileExistsError):
         TEMP_ROOT.mkdir(parents=True, exist_ok=True)
 
     # Clean up orphaned temp directories from crashed processes
     cleanup_orphaned_temp_dirs()
 
-    SESSION_TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    # Create new session directory if needed
+    if _session_temp_dir is None or not _session_temp_dir.exists():
+        _session_temp_dir = TEMP_ROOT / f"session_{uuid.uuid4().hex}"
+        _session_temp_dir.mkdir(parents=True, exist_ok=True)
 
     # Opportunistically clean up any stale session directories.
     for path in TEMP_ROOT.iterdir():
-        if path == SESSION_TEMP_DIR:
+        if path == _session_temp_dir:
             continue
         if path.is_dir():
             shutil.rmtree(path, ignore_errors=True)
@@ -135,9 +141,20 @@ def _ensure_session_temp_dir() -> None:
                 path.unlink()
 
 
+def get_session_temp_dir() -> Path:
+    """Get the current session temp directory."""
+    global _session_temp_dir
+    if _session_temp_dir is None:
+        _ensure_session_temp_dir()
+    return _session_temp_dir
+
+
 def _cleanup_session_dir() -> None:
-    if SESSION_TEMP_DIR.exists():
-        shutil.rmtree(SESSION_TEMP_DIR, ignore_errors=True)
+    """Clean up the current session directory."""
+    global _session_temp_dir
+    if _session_temp_dir is not None and _session_temp_dir.exists():
+        shutil.rmtree(_session_temp_dir, ignore_errors=True)
+        _session_temp_dir = None
 
 
 _ensure_session_temp_dir()
@@ -146,7 +163,7 @@ atexit.register(_cleanup_session_dir)
 
 def _new_temp_video_path(job_id: str, suffix: str) -> Path:
     unique = uuid.uuid4().hex
-    return SESSION_TEMP_DIR / f"{job_id}_{unique}{suffix}"
+    return get_session_temp_dir() / f"{job_id}_{unique}{suffix}"
 
 
 def _list_model_files() -> list[dict[str, object]]:
