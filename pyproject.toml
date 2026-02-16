@@ -62,7 +62,7 @@ keywords = ["video", "anonymization", "privacy", "dashcam", "ai", "computer-visi
 license = {text = "AGPL-3.0-or-later"}
 name = "obscuro"
 requires-python = ">=3.12"
-version = "0.1.1"
+version = "0.1.2"
 
 [project.optional-dependencies]
 dev = [
