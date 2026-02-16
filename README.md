@@ -4,7 +4,7 @@
   <img src="docs/assets/obscuro-icon.png" alt="Obscuro logo" width="140" height="140" />
 </p>
 
-Desktop-first tooling for anonymizing dashcam footage: optimized ONNX/SAHI detector pipeline, FastAPI backend, CLI utilities, and an Electron UI with live previews. Trackers include ByteTrack/BotSort plus a fused distance+shape+embedding tracker (with Hybrid SOT built on top for detector gaps). Detection targets are configurable—blur license plates and faces by default, or extend to vehicles, two-wheelers, and pedestrians when using segmentation-enabled models.
+Desktop-first tooling for anonymizing dashcam footage: optimized ONNX/SAHI detector pipeline, FastAPI backend, CLI utilities, and an Electron UI with live previews. Trackers include ByteTrack/BotSort/OC-SORT plus a fused distance+shape+embedding tracker (with Hybrid SOT built on top for detector gaps). Detection targets are configurable—blur license plates and heads by default, or extend to other classes when using segmentation-enabled models.
 
 ## Documentation
 
@@ -50,5 +50,5 @@ Open issues and pull requests on [GitHub](https://github.com/tfaehse/obscuro). R
 Licensed under **AGPL-3.0-or-later**.
 
 - Detector checkpoints are trained from Ultralytics YOLO11 pretrained weights (Ultralytics code is AGPL-3.0: https://github.com/ultralytics/ultralytics/blob/main/LICENSE).
-- The MobileNetV3 embedding ONNX (`models/tracking/mobilenetv3_small_embed.onnx`) is exported from `torchvision.models.mobilenet_v3_small` with the classifier stripped (torchvision is BSD-3-Clause: https://github.com/pytorch/vision/blob/main/LICENSE).
+- The MobileNetV3 embedding ONNX (`models/tracking/mobilenet_v3_small_embed.onnx`) is exported from `torchvision.models.mobilenet_v3_small` with the classifier stripped (torchvision is BSD-3-Clause: https://github.com/pytorch/vision/blob/main/LICENSE).
 - See `LICENSE` and the docs for full attribution guidance.

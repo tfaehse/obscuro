@@ -116,10 +116,13 @@ Get available configuration options and current settings.
     "current_inference_size": 1920,
     "inference_size_range": [256, 8192],
     "current_sahi_overlap": 0.2,
-    "sahi_overlap_range": [0.0, 0.99]
+    "sahi_overlap_range": [0.0, 0.99],
+    "current_disable_masks": false,
+    "current_single_pass": false,
+    "classes_to_blur": ["plate", "head"]
   },
   "tracking": {
-    "types": ["dummy", "bytetrack", "botsort", "hybrid_sot"],
+    "types": ["dummy", "bytetrack", "botsort", "hybrid_sot", "oc_sort"],
     "current_type": "bytetrack",
     "params": {
       "distance_gate": 0.05,
@@ -171,7 +174,10 @@ Get the current active configuration.
     "batch_size": 4,
     "use_sahi": true,
     "inference_size": 1920,
-    "sahi_overlap_ratio": 0.2
+    "sahi_overlap_ratio": 0.2,
+    "disable_masks": false,
+    "single_pass": false,
+    "classes_to_blur": ["plate", "head"]
   },
   "tracking": {
     "type": "bytetrack",
@@ -293,7 +299,10 @@ The `config` field accepts a JSON string with nested configuration overrides:
   },
   "detection": {
     "confidence_threshold": 0.3,
-    "low_score_threshold": 0.1
+    "low_score_threshold": 0.1,
+    "disable_masks": false,
+    "single_pass": false,
+    "classes_to_blur": ["plate", "head"]
   }
 }
 ```
@@ -533,7 +542,10 @@ Most processing endpoints accept a `config` parameter for runtime overrides. The
     "batch_size": 8,
     "use_sahi": true,
     "inference_size": 2560,
-    "sahi_overlap_ratio": 0.25
+    "sahi_overlap_ratio": 0.25,
+    "disable_masks": false,
+    "single_pass": false,
+    "classes_to_blur": ["plate", "head"]
   },
   "tracking": {
     "type": "botsort",

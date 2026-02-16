@@ -34,6 +34,8 @@ batch_size = 4
 use_sahi = true
 inference_size = 1920
 sahi_overlap_ratio = 0.2
+disable_masks = false
+classes_to_blur = ["plate", "head"]
 
 [tracking]
 type = "bytetrack"
@@ -293,6 +295,35 @@ blur-cli video input.mp4 --use-sahi
 }
 ```
 
+### `detection.disable_masks`
+**Type:** Boolean
+**Default:** `false`
+
+Disable segmentation mask inference and use bounding boxes only for blurring. When enabled:
+- Models with segmentation capability will only output bounding boxes
+- Faster processing (no mask computation)
+- Less precise blur (bounding box blur instead of object-shaped mask)
+
+**TOML:**
+```toml
+[detection]
+disable_masks = true
+```
+
+**CLI:**
+```bash
+blur-cli video input.mp4 --disable-masks
+```
+
+**API:**
+```json
+{
+  "detection": {
+    "disable_masks": true
+  }
+}
+```
+
 ### `detection.inference_size`
 **Type:** Integer
 **Default:** `1920`
@@ -334,12 +365,54 @@ sahi_overlap_ratio = 0.3
 blur-cli video input.mp4 --use-sahi --sahi-overlap 0.3
 ```
 
+### `detection.single_pass`
+**Type:** Boolean
+**Default:** `false`
+
+Force SAHI single-tile mode. When enabled:
+- Uses a single tile covering the entire image
+- No overlap between tiles
+- Overrides `inference_size` to model's native tile size
+- Faster processing, less memory usage
+- May miss small objects in large images
+
+**TOML:**
+```toml
+[detection]
+single_pass = true
+```
+
+**CLI:**
+```bash
+blur-cli video input.mp4 --single-pass
+```
+
+**API:**
+```json
+{
+  "detection": {
+    "single_pass": true
+  }
+}
+```
+
 ### `detection.classes_to_blur`
 **Type:** List of strings
-**Default:** `["person", "car", "bus", "motorcycle", "truck"]`
-**Choices:** `person`, `car`, `bus`, `motorcycle`, `truck`
+**Default:** `["plate", "head"]`
+**Choices:** Varies by model (check model metadata for available classes)
 
-Controls which detector classes are kept for downstream tracking/blurring. Non-listed classes are discarded immediately after detection. Use this to enable vehicle or person blurring when using segmentation-capable models.
+Controls which detector classes are kept for downstream tracking/blurring. Non-listed classes are discarded immediately after detection.
+
+**TOML:**
+```toml
+[detection]
+classes_to_blur = ["plate", "head", "person"]
+```
+
+**CLI:**
+```bash
+blur-cli video input.mp4 --blur-classes plate,head,person
+```
 
 **TOML:**
 ```toml
@@ -359,7 +432,7 @@ blur-cli video input.mp4 --blur-classes person,car,truck
 ### `tracking.type`
 **Type:** String
 **Default:** `"bytetrack"`
-**Choices:** `dummy`, `bytetrack`, `botsort`, `fused`, `hybrid_sot`
+**Choices:** `dummy`, `bytetrack`, `botsort`, `fused`, `hybrid_sot`, `oc_sort`
 
 Multi-object tracker algorithm:
 
@@ -368,6 +441,7 @@ Multi-object tracker algorithm:
 - **`botsort`** - BoT-SORT with camera motion compensation (best quality without embeddings)
 - **`fused`** - ByteTrack-style association with distance + shape + MobileNetV3 embeddings and strict gates
 - **`hybrid_sot`** - Fused tracker augmented with a per-track visual tracker to bridge detector gaps
+- **`oc_sort`** - Observation-centric sorting for non-linear motion tracking (IoU-based association, handles complex trajectories)
 
 **TOML:**
 ```toml
@@ -738,6 +812,7 @@ low_score_threshold = 0.1
 batch_size = 8
 use_sahi = true
 inference_size = 1920
+classes_to_blur = ["plate", "head"]
 
 [tracking]
 type = "botsort"
@@ -769,6 +844,7 @@ low_score_threshold = 0.1
 batch_size = 16
 use_sahi = false
 inference_size = 640
+classes_to_blur = ["plate", "head"]
 
 [tracking]
 type = "dummy"  # No tracking
@@ -796,6 +872,7 @@ batch_size = 4
 use_sahi = true
 inference_size = 3840
 sahi_overlap_ratio = 0.25
+classes_to_blur = ["plate", "head"]
 
 [tracking]
 type = "botsort"
@@ -823,6 +900,7 @@ low_score_threshold = 0.1
 batch_size = 4
 use_sahi = true
 inference_size = 2560
+classes_to_blur = ["plate", "head"]
 
 [tracking]
 type = "bytetrack"
@@ -867,10 +945,11 @@ If you encounter out-of-memory errors:
 
 For better tracking quality:
 
-1. Use `tracker = "botsort"` for best results
-2. Keep `use_offline_linker = true`
-3. Increase `max_misses_M` to 15-30 for crowded scenes
-4. Lower detection thresholds to 0.3-0.4
+1. Use `tracker = "botsort"` for best results without embeddings
+2. Use `tracker = "oc_sort"` for non-linear motion and complex trajectories
+3. Keep `use_offline_linker = true`
+4. Increase `max_misses_M` to 15-30 for crowded scenes
+5. Lower detection thresholds to 0.3-0.4
 
 ### Processing Speed
 
