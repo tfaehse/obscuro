@@ -240,7 +240,7 @@ class TrackingConfig(BaseModel):
         merged = {**defaults, **overrides, **params_input}
         try:
             validated = TrackerParams(**merged).model_dump()
-        except Exception as exc:  # pragma: no cover - surfaced to caller
+        except (ValueError, TypeError) as exc:  # pragma: no cover - surfaced to caller
             raise ValueError(f"Invalid tracker params for {self.type.value}: {exc}") from exc
 
         diff = {key: value for key, value in validated.items() if value != defaults.get(key)}

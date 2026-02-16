@@ -458,7 +458,7 @@ class Blurrer:
         try:
             x1_i = int(x1)
             y1_i = int(y1)
-        except Exception:
+        except (ValueError, TypeError):
             return None
         return {"mask": mask_arr, "x1": x1_i, "y1": y1_i}
 
@@ -508,11 +508,11 @@ class Blurrer:
         arr = np.asarray(data, dtype=bool)
         try:
             shape = tuple(int(v) for v in size)
-        except Exception:
+        except (ValueError, TypeError):
             return None
         try:
             mask = arr.reshape(shape)
-        except Exception:
+        except ValueError:
             return None
         if mask.ndim != 2:
             return None
@@ -530,7 +530,7 @@ class Blurrer:
             return None
         try:
             ph, pw = map(int, size)
-        except Exception:
+        except (ValueError, TypeError):
             return None
         expected = ph * pw
         arr = np.frombuffer(data, dtype=np.uint8, count=expected)

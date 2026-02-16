@@ -258,7 +258,7 @@ class MaskManager:
             try:
                 h, w = map(int, size)
                 mask = mask.reshape((h, w))
-            except Exception:
+            except (ValueError, TypeError):
                 return None
             return {"mask": mask, "x1": 0, "y1": 0}
         if fmt not in {"coeff", "coeff_ingredients"}:

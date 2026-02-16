@@ -512,8 +512,8 @@ class Anonymizer(CancellationMixin):
                 output_path.unlink()
             raise
         except Exception as e:
-            print(f"Error processing video: {e}")
-            raise e
+            logger.error("Error processing video: %s", e)
+            raise
         finally:
             self.detector.clear_mask_cache()
 

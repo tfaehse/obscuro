@@ -9,6 +9,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
@@ -97,8 +98,8 @@ def blur_image(args):
         # Load and process image (RGB)
         try:
             image = iio.imread(input_path)
-        except Exception as exc:
-            logger.error(f"Could not load image {input_path}: {exc}")
+        except (OSError, ValueError) as exc:
+            logger.error("Could not load image %s: %s", input_path, exc)
             return 1
 
         logger.info("Detecting and blurring...")
@@ -107,8 +108,8 @@ def blur_image(args):
         # Save result
         try:
             iio.imwrite(output_path, result)
-        except Exception:
-            logger.error(f"Could not save image to {output_path}")
+        except (OSError, ValueError):
+            logger.error("Could not save image to %s", output_path)
             return 1
 
         logger.info(f"Successfully saved blurred image to: {output_path}")
@@ -348,8 +349,8 @@ def list_models(download_url: str | None = None, desired_name: str | None = None
                 return 1
             with urlopen(download_url) as response:  # nosec: B310 (scheme validated above)
                 data = response.read()
-        except Exception as exc:  # pragma: no cover - network exceptions
-            logger.error(f"Failed to download model: {exc}")
+        except (URLError, HTTPError, ValueError) as exc:  # pragma: no cover - network exceptions
+            logger.error("Failed to download model: %s", exc)
             return 1
 
         if not data:

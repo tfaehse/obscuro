@@ -14,7 +14,7 @@ def _normalize_classes(raw: Any) -> list[str]:
         # Expecting {id: name}; order by numeric key if possible, else alpha
         try:
             return [raw[k] for k in sorted(raw, key=lambda v: int(v))]
-        except Exception:
+        except (ValueError, TypeError):
             return [raw[k] for k in sorted(raw)]
     if isinstance(raw, list | tuple):
         return [str(item) for item in raw]
