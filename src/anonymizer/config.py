@@ -41,6 +41,7 @@ class TrackerType(str, Enum):
     BOTSORT = "botsort"
     HYBRID_SOT = "hybrid_sot"
     FUSED = "fused"
+    OC_SORT = "oc_sort"
 
 
 class ModelConfig(BaseModel):
@@ -206,6 +207,17 @@ DEFAULT_TRACKER_PARAMS: dict[TrackerType, dict[str, Any]] = {
         "use_low_score_pool": True,
         "distance_gate_hi": 0.08,
         "distance_gate_lo": 0.15,
+    },
+    TrackerType.OC_SORT: {
+        "distance_gate": 0.05,
+        "confirm_after_N": 2,
+        "max_misses_M": 10,
+        "offline_linker_max_misses": 30,
+        "offline_linker_per_frame_gate": 0.05,
+        "bbox_dilate_pct": 0.2,
+        "temporal_smooth_alpha": 0.9,
+        "use_low_score_pool": True,
+        "process_noise": 1.0,
     },
 }
 

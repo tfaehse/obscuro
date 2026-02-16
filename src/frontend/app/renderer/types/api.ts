@@ -32,7 +32,7 @@ export interface DetectionConfig {
   classes_to_blur: string[];
 }
 
-export type TrackerType = 'dummy' | 'bytetrack' | 'botsort' | 'hybrid_sot' | 'fused';
+export type TrackerType = 'dummy' | 'bytetrack' | 'botsort' | 'hybrid_sot' | 'fused' | 'oc_sort';
 
 export interface TrackerParams {
   distance_gate: number;

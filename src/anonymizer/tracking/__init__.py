@@ -9,6 +9,7 @@ from .bytetrack import ByteTrackTracker
 from .dummy import DummyTracker
 from .fused import FusedTracker
 from .hybrid import HybridSOTTracker
+from .ocsort import OCSortTracker
 from .offline_linker import link_tracklets
 
 TRACKER_FACTORY = {
@@ -17,6 +18,7 @@ TRACKER_FACTORY = {
     "botsort": BotSortTracker,
     "hybrid_sot": HybridSOTTracker,
     "fused": FusedTracker,
+    "oc_sort": OCSortTracker,
 }
 
 

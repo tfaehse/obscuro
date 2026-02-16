@@ -16,6 +16,7 @@ from anonymizer.tracking.common import (
 from anonymizer.tracking.dummy import DummyTracker
 from anonymizer.tracking.fused import FusedTracker
 from anonymizer.tracking.hybrid import HybridSOTTracker
+from anonymizer.tracking.ocsort import OCSortTracker
 from anonymizer.tracking.offline_linker import link_tracklets
 from anonymizer.tracking.sort import SortTracker
 
@@ -500,3 +501,105 @@ def test_offline_linker_returns_interpolated_track():
 def test_batched_center_distance_handles_empty_inputs():
     result = batched_center_distance([], [], [], [])
     assert result.shape == (0, 0)
+
+
+def test_oc_sort_basic_association():
+    """Test OC-SORT basic track-detection association."""
+    tracker = OCSortTracker(None, params=TrackerParams(use_low_score_pool=False))
+    data = pl.DataFrame(
+        {
+            "frame": [0, 0],
+            "x1": [0.0, 100.0],
+            "y1": [0.0, 100.0],
+            "x2": [50.0, 150.0],
+            "y2": [50.0, 150.0],
+            "confidence": [0.9, 0.9],
+            "frame_width": [640, 640],
+            "frame_height": [480, 480],
+        }
+    )
+
+    tracker.track(data)
+    history_ids = {obs.track_id for obs in tracker.track_history}
+    assert history_ids == {1, 2}
+
+
+def test_oc_sort_maintains_track_through_brief_gap():
+    """Test that OC-SORT maintains track identity through a brief detection gap."""
+    tracker = OCSortTracker(None, params=TrackerParams(use_low_score_pool=True, max_misses_M=5))
+    # Detection in frames 0, 1, 3, 4 (gap at frame 2)
+    data = pl.DataFrame(
+        {
+            "frame": [0, 1, 3, 4],
+            "x1": [10.0, 12.0, 16.0, 18.0],
+            "y1": [10.0, 10.0, 10.0, 10.0],
+            "x2": [50.0, 52.0, 56.0, 58.0],
+            "y2": [50.0, 50.0, 50.0, 50.0],
+            "confidence": [0.9, 0.9, 0.9, 0.9],
+            "frame_width": [640, 640, 640, 640],
+            "frame_height": [480, 480, 480, 480],
+        }
+    )
+
+    tracks = tracker.track(data)
+    # OC-SORT should maintain a single track through the brief gap
+    assert tracks["track_id"].n_unique() == 1
+
+
+def test_oc_sort_observation_centric_momentum():
+    """Test that OC-SORT stores observation history for momentum computation."""
+    tracker = OCSortTracker(None, params=TrackerParams(use_low_score_pool=False))
+    data = pl.DataFrame(
+        {
+            "frame": [0, 1, 2],
+            "x1": [0.0, 5.0, 10.0],  # Moving right
+            "y1": [0.0, 0.0, 0.0],
+            "x2": [40.0, 45.0, 50.0],
+            "y2": [40.0, 40.0, 40.0],
+            "confidence": [0.9, 0.9, 0.9],
+            "frame_width": [640, 640, 640],
+            "frame_height": [480, 480, 480],
+        }
+    )
+
+    tracker.track(data)
+
+    # Check that the OC-SORT state is stored for track ID 1
+    assert 1 in tracker._oc_state
+    oc_state = tracker._oc_state[1]
+    assert oc_state.last_observation is not None
+    assert oc_state.delta_mean is not None
+    # The delta_mean should reflect the velocity (positive in x direction)
+    assert oc_state.delta_mean[0] > 0
+
+
+def test_oc_sort_iou_association():
+    """Test that OC-SORT uses IoU-based association."""
+    tracker = OCSortTracker(None, params=TrackerParams(use_low_score_pool=False))
+
+    # Create overlapping detections that should have high IoU
+    data = pl.DataFrame(
+        {
+            "frame": [0, 1],
+            "x1": [0.0, 5.0],  # Slight shift
+            "y1": [0.0, 0.0],
+            "x2": [50.0, 55.0],
+            "y2": [50.0, 50.0],
+            "confidence": [0.9, 0.9],
+            "frame_width": [100, 100],
+            "frame_height": [100, 100],
+        }
+    )
+
+    tracks = tracker.track(data)
+    # High IoU should maintain single track
+    assert tracks["track_id"].n_unique() == 1
+
+
+def test_oc_sort_reconfigure():
+    """Test OC-SORT reconfiguration."""
+    tracker = OCSortTracker(None, params=TrackerParams())
+    tracker.reconfigure(TrackerParams(max_misses_M=15))
+    assert tracker.params.max_misses_M == 15
+    tracker_info = tracker.get_tracker_info()
+    assert tracker_info["tracker_type"] == "OCSortTracker"
