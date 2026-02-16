@@ -184,11 +184,16 @@ jobs:
           zip -r ../blur-gui-windows-x64.zip .
         fi
 
+    - name: Get tag message
+      id: tag_message
+      run: |
+        echo "message=$(git tag -l "${{ github.ref_name }}" --format='%(contents)')" >> $GITHUB_OUTPUT
+
     - name: Create Release and Upload Assets
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ github.ref }}
-        name: Release ${{ github.ref_name }}
+        name: ${{ steps.tag_message.outputs.message || github.ref_name }}
         draft: false
         prerelease: false
         files: |
@@ -243,7 +248,7 @@ jobs:
         sleep 60
 
         # Test installation in a clean environment
-        python -m pip install blur-gui
+        python -m pip install obscuro
 
         # Basic smoke test
         blur-cli --help || true
