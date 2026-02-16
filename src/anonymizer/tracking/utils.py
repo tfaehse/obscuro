@@ -11,6 +11,7 @@ __all__ = [
     "cosine_similarities",
     "crop_patch",
     "prepare_frame_rgb",
+    "relative_tlwh_to_pixels",
     "update_weighted_embedding",
 ]
 
@@ -64,6 +65,23 @@ def crop_patch(frame: np.ndarray, bbox: tuple[int, int, int, int]) -> np.ndarray
         return None
     x, y, w, h = clamped
     return frame[y : y + h, x : x + w]
+
+
+def relative_tlwh_to_pixels(
+    tlwh: np.ndarray, frame_shape: tuple[int, ...]
+) -> tuple[int, int, int, int] | None:
+    """Convert normalized tlwh [0,1] into pixel bbox for a concrete frame."""
+    if len(frame_shape) < 2:
+        return None
+    h_max, w_max = frame_shape[:2]
+    if h_max <= 0 or w_max <= 0:
+        return None
+    x, y, w, h = tlwh.astype(float)
+    x_i = round(x * w_max)
+    y_i = round(y * h_max)
+    w_i = round(w * w_max)
+    h_i = round(h * h_max)
+    return clamp_bbox((x_i, y_i, w_i, h_i), frame_shape)
 
 
 def cosine_similarities(history: Iterable[np.ndarray], current: np.ndarray) -> np.ndarray:

@@ -196,9 +196,9 @@ def get_model_key(anonymizer_config: AnonymizerConfig) -> str:
         f"{params_key}-"
         f"{anonymizer_config.detection.confidence_threshold}-"
         f"{anonymizer_config.detection.low_score_threshold}-"
-        f"{int(anonymizer_config.detection.use_sahi)}-"
         f"{anonymizer_config.detection.inference_size}-"
         f"{anonymizer_config.detection.sahi_overlap_ratio}-"
+        f"{int(anonymizer_config.detection.single_pass)}-"
         f"{int(anonymizer_config.detection.disable_masks)}-"
         f"{blur_classes_key}"
     )
@@ -209,7 +209,7 @@ def get_or_create_anonymizer(
     progress_callback: Callable[[int, str, str], None] | None,
     cancel_event: threading.Event | None = None,
 ) -> Anonymizer:
-    """Get or create an anonymizer instance based on configuration (GPU-backed, legacy API)."""
+    """Get or create an anonymizer instance based on configuration."""
     return get_or_create_gpu_anonymizer(anonymizer_config, progress_callback, cancel_event)
 
 
@@ -381,11 +381,11 @@ async def get_config_options():
             "current_low_score_threshold": global_config.detection.low_score_threshold,
             "current_batch_size": global_config.detection.batch_size,
             "threshold_range": [0.0, 1.0],
-            "use_sahi": global_config.detection.use_sahi,
             "current_inference_size": global_config.detection.inference_size,
             "inference_size_range": [256, 8192],
             "current_sahi_overlap": global_config.detection.sahi_overlap_ratio,
             "sahi_overlap_range": [0.0, 0.99],
+            "current_single_pass": global_config.detection.single_pass,
             "available_classes": list(available_classes),
             "current_classes": list(current_classes),
             "default_blur_classes": list(default_blur_classes),

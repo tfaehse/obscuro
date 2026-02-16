@@ -613,7 +613,6 @@ Visual tracker backend (OpenCV tracker algorithm). Supported values:
 - `TrackerNano`/`Nano` (default) - OpenCV's lightweight NanoTrack implementation; requires backbone + neck/head weights that you must download separately into `models/tracking`
 - `CSRT` - accurate but slower
 - `KCF` - faster but less accurate
-- `Siam`/`SiamRPN` - MIL fallback for legacy configs
 
 #### `vt_max_age`
 **Type:** Integer

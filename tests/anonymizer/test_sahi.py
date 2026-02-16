@@ -31,7 +31,27 @@ class TestSahiDetector:
 
     def test_initialization(self, detector):
         assert detector.sahi_overlap_ratio == 0.2
+        assert detector.single_pass is False
         assert detector._sahi_model is None
+
+    def test_single_pass_overrides_tiling(self, mock_session):
+        with (
+            patch("pathlib.Path.exists", return_value=True),
+            patch(
+                "anonymizer.detection.core.load_model_metadata",
+                return_value={"classes": ["cls"], "default_blur": ["cls"]},
+            ),
+        ):
+            detector = SahiDetector(
+                "fake_model.onnx",
+                inference_size=2048,
+                sahi_overlap_ratio=0.4,
+                single_pass=True,
+            )
+
+        assert detector.single_pass is True
+        assert detector.inference_size == detector.imgsz
+        assert detector.sahi_overlap_ratio == 0.0
 
     def test_ensure_sahi_model(self, detector):
         model = detector._ensure_sahi_model()
@@ -75,12 +95,10 @@ class TestSahiDetector:
         img = np.zeros((640, 640, 3), dtype=np.uint8)
 
         # Mock slice_image to return one tile
-        mock_slice.return_value = [
-            {
-                "image": np.zeros((320, 320, 3), dtype=np.uint8),
-                "starting_pixel": [0, 0],
-            }
-        ]
+        tile = MagicMock()
+        tile.image = np.zeros((320, 320, 3), dtype=np.uint8)
+        tile.starting_pixel = [0, 0]
+        mock_slice.return_value = MagicMock(sliced_image_list=[tile])
 
         # Mock session run
         detector.session.run.return_value = [
@@ -101,7 +119,7 @@ class TestSahiDetector:
     @patch("anonymizer.detection.sahi.slice_image")
     def test_predict_single_image_no_tiles(self, mock_slice, detector):
         img = np.zeros((640, 640, 3), dtype=np.uint8)
-        mock_slice.return_value = []
+        mock_slice.return_value = MagicMock(sliced_image_list=[])
 
         df = detector._predict_single_image(img)
         assert df.is_empty()

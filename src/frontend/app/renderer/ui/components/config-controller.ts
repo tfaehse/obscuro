@@ -143,9 +143,9 @@ export class ConfigController {
     this.bindSectionField('detection-threshold', 'detection', 'confidence_threshold', v => parseFloat(String(v)));
     this.bindSectionField('low-score-threshold', 'detection', 'low_score_threshold', v => parseFloat(String(v)));
     this.bindSectionField('batch-size', 'detection', 'batch_size', v => parseInt(String(v), 10));
-    this.bindSectionField('use-sahi', 'detection', 'use_sahi', v => Boolean(v));
     this.bindSectionField('inference-size', 'detection', 'inference_size', v => parseInt(String(v), 10));
     this.bindSectionField('sahi-overlap', 'detection', 'sahi_overlap_ratio', v => parseFloat(String(v)));
+    this.bindSectionField('single-pass', 'detection', 'single_pass', v => Boolean(v), () => this.updateSinglePassInputs());
 
     this.bindSectionField('tracker-type', 'tracking', 'type', v => v as any, () => this.onTrackerTypeChanged());
     this.bindSectionField('track-offline-linker', 'tracking', 'use_offline_linker', v => Boolean(v));
@@ -217,9 +217,9 @@ export class ConfigController {
         confidence_threshold: options.detection.current_confidence_threshold,
         low_score_threshold: options.detection.current_low_score_threshold,
         batch_size: detectionBatch,
-        use_sahi: options.detection.use_sahi ?? current.detection.use_sahi,
         inference_size: options.detection.current_inference_size ?? current.detection.inference_size,
         sahi_overlap_ratio: options.detection.current_sahi_overlap ?? current.detection.sahi_overlap_ratio,
+        single_pass: options.detection.current_single_pass ?? current.detection.single_pass,
         classes_to_blur: selectedClasses,
       },
       tracking: {
@@ -235,6 +235,7 @@ export class ConfigController {
       log_level: options.global.current_log_level,
     });
     this.renderClassToggles(this.availableClasses, selectedClasses, this.defaultBlurClasses);
+    this.updateSinglePassInputs();
   }
 
   renderModels(models: ModelInfo[]): void {
@@ -326,9 +327,9 @@ export class ConfigController {
     this.setValue('detection-threshold', config.detection.confidence_threshold);
     this.setValue('low-score-threshold', config.detection.low_score_threshold);
     this.setValue('batch-size', config.detection.batch_size);
-    this.setValue('use-sahi', config.detection.use_sahi);
     this.setValue('inference-size', config.detection.inference_size);
     this.setValue('sahi-overlap', config.detection.sahi_overlap_ratio);
+    this.setValue('single-pass', config.detection.single_pass);
     this.renderClassToggles(
       this.availableClasses,
       config.detection.classes_to_blur,
@@ -380,6 +381,7 @@ export class ConfigController {
     this.setValue('log-level', config.log_level);
 
     this.updateParamVisibility();
+    this.updateSinglePassInputs();
     this.refreshValueBadges();
     this.updateDebugConfig();
   }
@@ -388,6 +390,14 @@ export class ConfigController {
     const debugConfigElement = document.getElementById('debug-config');
     if (!debugConfigElement) return;
     debugConfigElement.textContent = JSON.stringify(store.getConfig(), null, 2);
+  }
+
+  private updateSinglePassInputs(): void {
+    const singlePass = store.getConfig().detection.single_pass;
+    const inferenceInput = document.getElementById('inference-size') as HTMLInputElement | null;
+    const overlapInput = document.getElementById('sahi-overlap') as HTMLInputElement | null;
+    if (inferenceInput) inferenceInput.disabled = singlePass;
+    if (overlapInput) overlapInput.disabled = singlePass;
   }
 
   updateParamVisibility(forcedType?: string): void {

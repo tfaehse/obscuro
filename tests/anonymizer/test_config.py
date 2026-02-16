@@ -82,9 +82,9 @@ class TestDetectionConfig:
         config = DetectionConfig()
         assert config.confidence_threshold == 0.5
         assert config.low_score_threshold == 0.1
-        assert config.use_sahi is True
         assert config.inference_size == 1920
         assert config.sahi_overlap_ratio == 0.2
+        assert config.single_pass is False
 
     def test_detection_thresholds_validation(self):
         """Test detection threshold validation."""
@@ -175,9 +175,9 @@ class TestAnonymizerConfig:
         assert isinstance(config.video, VideoConfig)
         assert not config.debug
         assert config.log_level == "INFO"
-        assert config.detection.use_sahi
         assert config.detection.inference_size == 1920
         assert config.detection.sahi_overlap_ratio == 0.2
+        assert config.detection.single_pass is False
 
     def test_anonymizer_config_custom_values(self):
         """Test anonymizer configuration with custom values."""
@@ -235,10 +235,9 @@ class TestConfigManagement:
         """Test load_config applies overrides on top of defaults."""
         config = load_config(
             config_path=None,
-            overrides={"detection": {"use_sahi": True, "inference_size": 1024}},
+            overrides={"detection": {"inference_size": 1024}},
             apply=False,
         )
-        assert config.detection.use_sahi is True
         assert config.detection.inference_size == 1024
 
 
@@ -272,11 +271,11 @@ class TestOverrideHelpers:
 
     def test_with_overrides_returns_new_instance(self):
         base = AnonymizerConfig()
-        updated = with_overrides(base, detection__use_sahi=False)
+        updated = with_overrides(base, detection__inference_size=1024)
 
         assert updated is not base
-        assert base.detection.use_sahi is True
-        assert updated.detection.use_sahi is False
+        assert base.detection.inference_size == 1920
+        assert updated.detection.inference_size == 1024
 
     def test_with_overrides_merges_nested_dicts(self):
         base = AnonymizerConfig()
@@ -310,29 +309,29 @@ class TestConfigLayers:
     def test_layers_with_named_override(self):
         base = AnonymizerConfig()
         layers = ConfigLayers(base)
-        layers.set_layer("cli", {"detection": {"use_sahi": False}})
+        layers.set_layer("cli", {"detection": {"inference_size": 1024}})
 
         resolved = layers.resolve()
-        assert resolved.detection.use_sahi is False
-        assert base.detection.use_sahi is True
+        assert resolved.detection.inference_size == 1024
+        assert base.detection.inference_size == 1920
 
         cumulative = layers.cumulative_overrides()
-        assert cumulative == {"detection": {"use_sahi": False}}
+        assert cumulative == {"detection": {"inference_size": 1024}}
 
     def test_layers_remove_and_extra_overrides(self):
         base = AnonymizerConfig()
         layers = ConfigLayers(base)
         layers.set_layer("server", {"detection": {"inference_size": 1024}})
-        layers.set_layer("cli", {"detection": {"use_sahi": False}})
+        layers.set_layer("cli", {"detection": {"batch_size": 2}})
 
         resolved = layers.resolve({"detection": {"sahi_overlap_ratio": 0.4}})
         assert resolved.detection.inference_size == 1024
-        assert resolved.detection.use_sahi is False
+        assert resolved.detection.batch_size == 2
         assert resolved.detection.sahi_overlap_ratio == 0.4
 
         layers.remove_layer("cli")
         resolved_without_cli = layers.resolve()
-        assert resolved_without_cli.detection.use_sahi is True
+        assert resolved_without_cli.detection.batch_size == base.detection.batch_size
         assert resolved_without_cli.detection.inference_size == 1024
 
 

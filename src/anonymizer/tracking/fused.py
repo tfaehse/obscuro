@@ -11,7 +11,12 @@ from anonymizer.config import TrackerParams
 from .base import BaseTracker
 from .common import Detection, TrackObservation, TrackState, batched_center_distance
 from .embeddings import get_embedding_model
-from .utils import clamp_bbox, cosine_similarities, crop_patch, update_weighted_embedding
+from .utils import (
+    cosine_similarities,
+    crop_patch,
+    relative_tlwh_to_pixels,
+    update_weighted_embedding,
+)
 
 
 class FusedTracker(BaseTracker):
@@ -155,9 +160,7 @@ class FusedTracker(BaseTracker):
             return [None] * len(detections)
         embs: list[np.ndarray | None] = []
         for det in detections:
-            tlwh = det.tlwh.astype(int)
-            bbox = (int(tlwh[0]), int(tlwh[1]), int(tlwh[2]), int(tlwh[3]))
-            clamped = clamp_bbox(bbox, frame.shape)
+            clamped = relative_tlwh_to_pixels(det.tlwh, frame.shape)
             if clamped is None:
                 embs.append(None)
                 continue

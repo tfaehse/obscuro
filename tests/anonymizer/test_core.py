@@ -143,6 +143,7 @@ class TestAnonymizer:
         # relying on mocking working perfectly.
         assert anonymizer.detector is not None
         assert anonymizer.config.model.path is not None
+        assert mock_detector.call_args.kwargs["single_pass"] == sample_config.detection.single_pass
 
     @patch("anonymizer.core.Detector")
     @patch("anonymizer.core.TrackerFactory")
@@ -1049,7 +1050,7 @@ def test_detection_tracking_blurring_pipeline_blurs_region(tmp_path, monkeypatch
     def fake_detect(self, _input):
         return detection_df
 
-    monkeypatch.setattr("anonymizer.detection.FrameDetector.detect", fake_detect)
+    monkeypatch.setattr("anonymizer.detection.SahiDetector.detect", fake_detect)
 
     class StubTracker:
         def __init__(self, video_source=None, **_kwargs):
@@ -1102,7 +1103,6 @@ def test_detection_tracking_blurring_pipeline_blurs_region(tmp_path, monkeypatch
     monkeypatch.setattr("anonymizer.blurring.blur_video_av", fake_blur_video_av)
 
     config = AnonymizerConfig()
-    config.detection.use_sahi = False
     config.tracking.type = TrackerType.BYTETRACK
 
     input_path = tmp_path / "input.mp4"

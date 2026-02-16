@@ -164,7 +164,7 @@ def test_botsort_motion_compensation_updates_prev_centers():
     )
 
     tracker.track(data)
-    assert tracker._prev_centers == [(10.0, 10.0)]
+    assert tracker._prev_centers == [(0.1, 0.1)]
 
 
 def test_botsort_reconfigure_clears_prev_centers():
@@ -257,7 +257,7 @@ def test_hybrid_visual_tracker_updates(monkeypatch):
     )
     monkeypatch.setattr(tracker, "_get_frame", lambda idx: np.zeros((10, 10, 3), dtype=np.uint8))
 
-    det_array = np.array([1.0, 2.0, 3.0, 4.0], dtype=float)
+    det_array = np.array([0.1, 0.2, 0.3, 0.4], dtype=float)
     detection = Detection(
         frame_idx=0,
         tlwh=det_array.copy(),

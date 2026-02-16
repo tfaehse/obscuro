@@ -12,12 +12,10 @@ class TestSahiOnnxDetectionModel:
     def mock_detector(self):
         detector = Mock()
         detector.session = Mock()
+        detector.imgsz = 640
         input_mock = Mock()
         input_mock.name = "images"  # Set as attribute, not Mock
         detector.session.get_inputs.return_value = [input_mock]
-        detector._preprocess = Mock(
-            return_value=(np.zeros((1, 3, 640, 640)), {"original_shape": (640, 640)})
-        )
         detector._postprocess = Mock(
             return_value=pl.DataFrame(
                 {
@@ -72,7 +70,6 @@ class TestSahiOnnxDetectionModel:
 
         assert sahi_model._last_dataframe is not None
         assert not sahi_model._last_dataframe.is_empty()
-        mock_detector._preprocess.assert_called_once()
         mock_detector.session.run.assert_called_once()
 
     def test_perform_inference_not_initialized(self, sahi_model):
@@ -102,10 +99,10 @@ class TestSahiOnnxDetectionModel:
         result = sahi_model._ensure_dataframe()
         assert result.is_empty()
 
-        # Test with Iterable (list)
+        # Non-DataFrame payloads are no longer supported.
         sahi_model._original_predictions = [{"x1": 1.0}]
-        result = sahi_model._ensure_dataframe()
-        assert isinstance(result, pl.DataFrame)
+        with pytest.raises(TypeError):
+            sahi_model._ensure_dataframe()
 
     def test_empty_dataframe(self):
         df = SahiOnnxDetectionModel._empty_dataframe()
@@ -195,7 +192,7 @@ class TestSahiOnnxDetectionModel:
 
     @patch("anonymizer.sahi_integration.slice_image")
     def test_run_sliced_predictions_no_slices(self, mock_slice, sahi_model):
-        mock_slice.return_value = []
+        mock_slice.return_value = Mock(sliced_image_list=[])
         image = np.zeros((640, 640, 3), dtype=np.uint8)
 
         predictions = sahi_model._run_sliced_predictions(
@@ -211,10 +208,13 @@ class TestSahiOnnxDetectionModel:
 
     @patch("anonymizer.sahi_integration.slice_image")
     def test_run_sliced_predictions_with_tiles(self, mock_slice, sahi_model, mock_detector):
-        mock_slice.return_value = [
-            {"image": np.zeros((320, 320, 3), dtype=np.uint8), "starting_pixel": [0, 0]},
-            {"image": np.zeros((320, 320, 3), dtype=np.uint8), "starting_pixel": [320, 0]},
-        ]
+        tile0 = Mock()
+        tile0.image = np.zeros((320, 320, 3), dtype=np.uint8)
+        tile0.starting_pixel = [0, 0]
+        tile1 = Mock()
+        tile1.image = np.zeros((320, 320, 3), dtype=np.uint8)
+        tile1.starting_pixel = [320, 0]
+        mock_slice.return_value = Mock(sliced_image_list=[tile0, tile1])
         mock_detector.session.run.return_value = [np.zeros((2, 84, 100))]
 
         image = np.zeros((640, 640, 3), dtype=np.uint8)

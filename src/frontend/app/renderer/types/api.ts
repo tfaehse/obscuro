@@ -25,9 +25,9 @@ export interface DetectionConfig {
   confidence_threshold: number; // 0-1
   low_score_threshold: number;  // 0-1
   batch_size: number;      // 1-256
-  use_sahi: boolean;
   inference_size: number;
   sahi_overlap_ratio: number;
+  single_pass: boolean;
   classes_to_blur: string[];
 }
 
@@ -93,11 +93,11 @@ export interface ConfigOptions {
     current_low_score_threshold: number;
     current_batch_size: number | null;
     threshold_range: [number, number];
-    use_sahi: boolean;
     current_inference_size: number;
     inference_size_range: [number, number];
     current_sahi_overlap: number;
     sahi_overlap_range: [number, number];
+    current_single_pass: boolean;
     available_classes: string[];
     current_classes: string[];
     default_blur_classes: string[];

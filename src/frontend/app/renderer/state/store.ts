@@ -190,9 +190,9 @@ export class Store {
         confidence_threshold: 0.5,
         low_score_threshold: 0.1,
         batch_size: 8,
-        use_sahi: true,
         inference_size: 1920,
         sahi_overlap_ratio: 0.2,
+        single_pass: false,
         classes_to_blur: ['plate', 'head'],
       },
       tracking: {

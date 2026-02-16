@@ -19,7 +19,7 @@ class TrackState(str, Enum):
 
 @dataclass(slots=True)
 class Detection:
-    """Lightweight detection container (tlwh format in absolute pixels)."""
+    """Lightweight detection container (tlwh format in normalized coordinates)."""
 
     frame_idx: int
     tlwh: np.ndarray  # [x, y, w, h]
@@ -96,14 +96,16 @@ def xyah_to_tlwh(xyah: np.ndarray) -> np.ndarray:
 
 
 def normalized_center(tlwh: np.ndarray, frame_size: tuple[int, int] | None) -> np.ndarray | None:
-    if frame_size is None:
-        return None
-    width, height = frame_size
-    if width <= 0 or height <= 0:
-        return None
     x, y, w, h = tlwh.astype(float)
-    cx = (x + w / 2.0) / float(width)
-    cy = (y + h / 2.0) / float(height)
+    if frame_size is None:
+        cx = x + w / 2.0
+        cy = y + h / 2.0
+    else:
+        width, height = frame_size
+        if width <= 0 or height <= 0:
+            return None
+        cx = (x + w / 2.0) / float(width)
+        cy = (y + h / 2.0) / float(height)
     return np.array([cx, cy], dtype=float)
 
 

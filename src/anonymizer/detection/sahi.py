@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import math
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -29,22 +29,28 @@ class SahiDetector(BaseDetector):
         self,
         *args,
         sahi_overlap_ratio: float = 0.2,
+        single_pass: bool = False,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
         # Ensure logger is available even if BaseDetector initialisation changes order
         if not hasattr(self, "logger"):
             self.logger = logging.getLogger("obscuro.detection.sahi")
+        self.single_pass = bool(single_pass)
         self.sahi_overlap_ratio = float(max(0.0, min(sahi_overlap_ratio, 0.99)))
+        if self.single_pass:
+            self.inference_size = self.imgsz
+            self.sahi_overlap_ratio = 0.0
         self._sahi_model: SahiOnnxDetectionModel | None = None
         self._category_mapping = dict(self.category_mapping)
         self._logged_tile_info = False
         self.logger.info(
-            "SAHI inference configured tile=%dx%d inference_size=%d overlap=%.2f",
+            "SAHI inference configured tile=%dx%d inference_size=%d overlap=%.2f single_pass=%s",
             self.imgsz,
             self.imgsz,
             self.inference_size,
             self.sahi_overlap_ratio,
+            self.single_pass,
         )
 
     # SAHI-specific utilities -------------------------------------------------
@@ -61,7 +67,7 @@ class SahiDetector(BaseDetector):
     @staticmethod
     def _prepare_image_for_sahi(image: np.ndarray) -> np.ndarray:
         prepared = image
-        if prepared.ndim == 3 and prepared.shape[0] <= 4:
+        if prepared.ndim == 3 and prepared.shape[0] <= 4 and prepared.shape[-1] not in (3, 4):
             prepared = np.transpose(prepared, (1, 2, 0))
         if prepared.ndim == 2:
             prepared = np.repeat(prepared[..., None], 3, axis=2)
@@ -180,31 +186,33 @@ class SahiDetector(BaseDetector):
         )
         return self._filter_by_categories(df)
 
-    def _predict_single_image(self, image: np.ndarray, *, frame_id: int = 0) -> pl.DataFrame:
-        prepared = self._prepare_image_for_sahi(image)
-        original_height, original_width = prepared.shape[:2]
-        prepared, downscale = self._downscale_for_sahi(prepared)
-        scale_up = 1.0 / downscale if downscale != 0 else 1.0
+    def _iter_tiles(self, image: np.ndarray) -> list[tuple[np.ndarray, tuple[float, float]]]:
         tile_result = slice_image(
-            image=Image.fromarray(prepared.astype(np.uint8)),
+            image=Image.fromarray(image.astype(np.uint8)),
             slice_height=self.imgsz,
             slice_width=self.imgsz,
             overlap_height_ratio=self.sahi_overlap_ratio,
             overlap_width_ratio=self.sahi_overlap_ratio,
         )
         tiles = tile_result.sliced_image_list
+        return [
+            (np.asarray(tile.image), (float(tile.starting_pixel[0]), float(tile.starting_pixel[1])))
+            for tile in tiles
+        ]
+
+    def _predict_single_image(self, image: np.ndarray, *, frame_id: int = 0) -> pl.DataFrame:
+        prepared = self._prepare_image_for_sahi(image)
+        prepared, downscale = self._downscale_for_sahi(prepared)
+        scale_up = 1.0 / downscale if downscale != 0 else 1.0
+        tiles = self._iter_tiles(prepared)
         if not tiles:
             return self._empty_result_df()
 
         metas: list[dict[str, Any]] = []
         tensors: list[np.ndarray] = []
-        for tile_id, tile in enumerate(tiles):
-            tile_image = np.asarray(tile.image)
+        for tile_id, (tile_image, offset) in enumerate(tiles):
             pre, meta = preprocess_image(tile_image, self.imgsz)
-            meta["tile_offset"] = (
-                float(tile.starting_pixel[0]),
-                float(tile.starting_pixel[1]),
-            )
+            meta["tile_offset"] = offset
             meta["tile_id"] = tile_id
             meta["global_shape"] = prepared.shape[:2]
             meta["scale_up"] = scale_up
@@ -252,16 +260,6 @@ class SahiDetector(BaseDetector):
 
         frame_ids = [int(frame_id)] * len(metas)
         df = self._postprocess(outputs_final, metas, frame_ids=frame_ids)
-        if downscale != 1.0 and not df.is_empty():
-            scale_up = 1.0 / downscale
-            df = df.with_columns(
-                pl.col("x1") * scale_up,
-                pl.col("y1") * scale_up,
-                pl.col("x2") * scale_up,
-                pl.col("y2") * scale_up,
-                pl.col("frame_width") * scale_up,
-                pl.col("frame_height") * scale_up,
-            )
         return df
 
     def _iter_frame_sequence(
@@ -285,8 +283,12 @@ class SahiDetector(BaseDetector):
         self._report_progress(100, "Single image processing complete")
         return df
 
-    def _detect_from_list(self, images: list[np.ndarray]) -> pl.DataFrame:
-        results = [df for _, df in self._iter_frame_sequence(images) if df is not None]
+    def _detect_from_list(
+        self, images: list[np.ndarray], frame_ids: Sequence[int] | None = None
+    ) -> pl.DataFrame:
+        results = [
+            df for _, df in self._iter_frame_sequence(images, frame_ids=frame_ids) if df is not None
+        ]
         return pl.concat(results, rechunk=True) if results else self._empty_result_df()
 
     def _detect_from_batch_array(self, tensor: np.ndarray) -> pl.DataFrame:

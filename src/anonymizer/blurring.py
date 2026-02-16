@@ -331,6 +331,12 @@ class Blurrer:
             x2 = x1 + width_val
             y2 = y1 + height_val
 
+        if max(x1, y1, x2, y2) <= 1.0:
+            x1 *= width
+            x2 *= width
+            y1 *= height
+            y2 *= height
+
         if x2 <= x1 or y2 <= y1:
             return
 
@@ -534,10 +540,19 @@ class Blurrer:
         if row:
             width = frame_shape[1]
             height = frame_shape[0]
-            x1 = int(np.clip(np.floor(row.get("x1", 0.0)), 0, width))
-            y1 = int(np.clip(np.floor(row.get("y1", 0.0)), 0, height))
-            x2 = int(np.clip(np.ceil(row.get("x2", float(x1))), 0, width))
-            y2 = int(np.clip(np.ceil(row.get("y2", float(y1))), 0, height))
+            x1_raw = float(row.get("x1", 0.0))
+            y1_raw = float(row.get("y1", 0.0))
+            x2_raw = float(row.get("x2", x1_raw))
+            y2_raw = float(row.get("y2", y1_raw))
+            if max(x1_raw, y1_raw, x2_raw, y2_raw) <= 1.0:
+                x1_raw *= width
+                x2_raw *= width
+                y1_raw *= height
+                y2_raw *= height
+            x1 = int(np.clip(np.floor(x1_raw), 0, width))
+            y1 = int(np.clip(np.floor(y1_raw), 0, height))
+            x2 = int(np.clip(np.ceil(x2_raw), 0, width))
+            y2 = int(np.clip(np.ceil(y2_raw), 0, height))
             roi_w = max(0, x2 - x1)
             roi_h = max(0, y2 - y1)
             if roi_w == 0 or roi_h == 0:
@@ -715,44 +730,30 @@ class Blurrer:
     def _ensure_absolute_rois(
         boxes: list[tuple[float, float, float, float]], frame_shape: tuple[int, ...]
     ) -> list[tuple[int, int, int, int]]:
-        """Convert xyxy boxes (relative or absolute) to absolute (x, y, w, h)."""
+        """Convert normalized xyxy boxes to absolute (x, y, w, h)."""
         if not boxes:
             return []
 
         height, width = frame_shape[:2]
         height = max(1, int(height))
         width = max(1, int(width))
-
-        def is_relative(box: tuple[float, float, float, float]) -> bool:
-            return all(0.0 <= coord <= 1.0 for coord in box)
-
-        if all(is_relative(box) for box in boxes):
-            return convert_relative_to_absolute_rois(boxes, (height, width))
-
-        absolute: list[tuple[int, int, int, int]] = []
+        normalized = []
         for x1, y1, x2, y2 in boxes:
-            x1_px = round(x1)
-            y1_px = round(y1)
-            x2_px = round(x2)
-            y2_px = round(y2)
-
-            if x2_px < x1_px:
-                x1_px, x2_px = x2_px, x1_px
-            if y2_px < y1_px:
-                y1_px, y2_px = y2_px, y1_px
-
-            x1_px = max(0, min(x1_px, width))
-            y1_px = max(0, min(y1_px, height))
-            x2_px = max(0, min(x2_px, width))
-            y2_px = max(0, min(y2_px, height))
-
-            roi_w = x2_px - x1_px
-            roi_h = y2_px - y1_px
-
-            if roi_w > 0 and roi_h > 0:
-                absolute.append((x1_px, y1_px, roi_w, roi_h))
-
-        return absolute
+            x1_f = float(x1)
+            y1_f = float(y1)
+            x2_f = float(x2)
+            y2_f = float(y2)
+            if max(x1_f, y1_f, x2_f, y2_f) > 1.0:
+                x1_f /= width
+                y1_f /= height
+                x2_f /= width
+                y2_f /= height
+            nx1 = min(x1_f, x2_f)
+            ny1 = min(y1_f, y2_f)
+            nx2 = max(x1_f, x2_f)
+            ny2 = max(y1_f, y2_f)
+            normalized.append((nx1, ny1, nx2, ny2))
+        return convert_relative_to_absolute_rois(normalized, (height, width))
 
     def _apply_detections_to_image(
         self, image: np.ndarray | None, detections: pl.DataFrame

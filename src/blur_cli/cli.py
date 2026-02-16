@@ -85,7 +85,6 @@ def blur_image(args):
             output_file=str(output_path),
             model_name=config.model.name,
             blur_type=config.blur.type.value,
-            use_sahi=config.detection.use_sahi,
             inference_size=config.detection.inference_size,
         )
 
@@ -169,7 +168,6 @@ def blur_video(args):
             model_name=config.model.name,
             blur_type=config.blur.type.value,
             tracker_type=config.tracking.type.value,
-            use_sahi=config.detection.use_sahi,
             inference_size=config.detection.inference_size,
         )
 
@@ -244,12 +242,12 @@ def get_config_for_args(args) -> AnonymizerConfig:
         detection_overrides["disable_masks"] = True
     if hasattr(args, "batch_size") and args.batch_size is not None:
         detection_overrides["batch_size"] = max(1, int(args.batch_size))
-    if hasattr(args, "use_sahi") and args.use_sahi is not None:
-        detection_overrides["use_sahi"] = bool(args.use_sahi)
     if hasattr(args, "inference_size") and args.inference_size is not None:
         detection_overrides["inference_size"] = max(256, int(args.inference_size))
     if hasattr(args, "sahi_overlap") and args.sahi_overlap is not None:
         detection_overrides["sahi_overlap_ratio"] = args.sahi_overlap
+    if hasattr(args, "single_pass") and args.single_pass is not None:
+        detection_overrides["single_pass"] = bool(args.single_pass)
     blur_classes_arg = getattr(args, "blur_classes", None)
     if blur_classes_arg:
         if isinstance(blur_classes_arg, str):
@@ -532,13 +530,6 @@ Examples:
             help="Detection batch size (frames per inference call)",
         )
         subparser.add_argument(
-            "--use-sahi",
-            dest="use_sahi",
-            action=argparse.BooleanOptionalAction,
-            default=None,
-            help="Enable or disable SAHI tiled inference (default: disabled)",
-        )
-        subparser.add_argument(
             "--inference-size",
             type=int,
             help="Longest image edge (pixels) used for detection inference",
@@ -547,6 +538,13 @@ Examples:
             "--sahi-overlap",
             type=float,
             help="SAHI tile overlap ratio between 0.0 and 0.99 (overrides config file)",
+        )
+        subparser.add_argument(
+            "--single-pass",
+            dest="single_pass",
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help="Force single-tile SAHI mode (overrides overlap to 0 and inference size to model tile size)",
         )
         subparser.add_argument(
             "--tracker",

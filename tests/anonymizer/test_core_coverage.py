@@ -13,7 +13,6 @@ class TestAnonymizerCoverage:
         config.detection.confidence_threshold = 0.5
         config.detection.low_score_threshold = 0.3
         config.detection.batch_size = 1
-        config.detection.use_sahi = False
         config.detection.inference_size = 640
         config.detection.sahi_overlap_ratio = 0.2
         config.detection.classes_to_blur = []

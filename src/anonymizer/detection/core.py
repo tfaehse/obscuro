@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import math
 import threading
-import time
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import Any
@@ -26,7 +25,6 @@ from anonymizer.paths import get_detection_models_dir
 
 from ..cancellation import CancellationException
 from ..io.video import get_video_info, iter_frame_batches
-from ..utils.progress import ProgressRateEstimator, format_progress_message
 
 DEFAULT_MODELS_DIR = get_detection_models_dir()
 
@@ -588,8 +586,8 @@ class BaseDetector:
             masks=mask_payloads,
         )
 
-        # Finally filter by configured categories
-        return self._filter_by_categories(df)
+        # Finally filter by configured categories and normalize boxes.
+        return self._to_relative_dataframe(self._filter_by_categories(df))
 
     def _build_detection_dataframe(
         self,
@@ -653,149 +651,16 @@ class BaseDetector:
             },
         )
 
-
-class FrameDetector(BaseDetector):
-    """Detector that processes full frames without tiling."""
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        logger.info("SAHI inference disabled; using full-frame pipeline")
-
-    def _detect_from_array(self, image: np.ndarray) -> pl.DataFrame:
-        self._report_progress(0, "Processing single image")
-        input_tensor, meta = preprocess_image(image, self.imgsz)
-        outputs = self.session.run(None, {self._input_name: input_tensor})
-        self._report_progress(100, "Single image processing complete")
-        return self._postprocess(outputs, [meta], frame_ids=[0])
-
-    def _detect_from_list(
-        self, images: list[np.ndarray], frame_ids: Sequence[int] | None = None
-    ) -> pl.DataFrame:
-        self._check_cancelled()
-
-        batch = []
-        metas: list[dict[str, Any]] = []
-
-        for image in images:
-            self._check_cancelled()
-            preprocessed, meta = preprocess_image(image, self.imgsz)
-            batch.append(preprocessed[0])
-            metas.append(meta)
-        if not batch:
-            return self._empty_result_df()
-
-        self._check_cancelled()
-
-        input_tensor = np.stack(batch, axis=0)
-        outputs = self.session.run(None, {self._input_name: input_tensor})
-
-        return self._postprocess(outputs, metas, frame_ids=frame_ids)
-
-    def _detect_from_batch_array(self, tensor: np.ndarray) -> pl.DataFrame:
-        self._report_progress(0, "Starting batch array processing")
-        batch_results: list[pl.DataFrame] = []
-        total_batches = (tensor.shape[0] + self.batch_size - 1) // self.batch_size
-
-        for i in range(0, tensor.shape[0], self.batch_size):
-            try:
-                self._check_cancelled()
-            except CancellationException:
-                self._report_progress(0, "Cancelled")
-                raise
-
-            batch = tensor[i : i + self.batch_size]
-            batch_images = []
-            for image in batch:
-                batch_images.append(ensure_channel_last(image))
-            frame_ids = list(range(i, i + len(batch_images)))
-            df = self._detect_from_list(batch_images, frame_ids=frame_ids)
-            if not df.is_empty():
-                batch_results.append(df)
-
-            percentage = int(((i // self.batch_size + 1) / total_batches) * 100)
-            self._report_progress(
-                percentage, f"Processed batch {i // self.batch_size + 1}/{total_batches}."
-            )
-
-        self._report_progress(100, "Batch array processing complete")
-        return pl.concat(batch_results, rechunk=True) if batch_results else self._empty_result_df()
-
-    def _detect_from_path(self, path: Path) -> pl.DataFrame:
-        logger.debug("Starting detection for %s", path)
-        self._report_progress(0, "Starting")
-
-        results: list[pl.DataFrame] = []
-        video_info = get_video_info(path)
-        total_frames_meta = int(video_info.get("frame_count") or 0)
-        total_batches = (
-            (total_frames_meta + self.batch_size - 1) // self.batch_size
-            if total_frames_meta > 0
-            else None
+    @staticmethod
+    def _to_relative_dataframe(df: pl.DataFrame) -> pl.DataFrame:
+        if df.is_empty():
+            return df
+        required = {"x1", "y1", "x2", "y2", "frame_width", "frame_height"}
+        if not required.issubset(df.columns):
+            return df
+        return df.with_columns(
+            (pl.col("x1") / pl.col("frame_width").cast(pl.Float64)).clip(0.0, 1.0).alias("x1"),
+            (pl.col("y1") / pl.col("frame_height").cast(pl.Float64)).clip(0.0, 1.0).alias("y1"),
+            (pl.col("x2") / pl.col("frame_width").cast(pl.Float64)).clip(0.0, 1.0).alias("x2"),
+            (pl.col("y2") / pl.col("frame_height").cast(pl.Float64)).clip(0.0, 1.0).alias("y2"),
         )
-
-        processed_batches = 0
-        processed_frames = 0
-        batch_start_time = time.perf_counter()
-        rate_tracker = ProgressRateEstimator()
-        prefetch = max(self.batch_size * 2, 4)
-
-        for batch in iter_frame_batches(path, self.batch_size, prefetch=prefetch):
-            try:
-                self._check_cancelled()
-            except CancellationException:
-                self._report_progress(0, "Cancelled")
-                raise
-
-            if not batch:
-                continue
-
-            frame_indices = np.array([idx for idx, _ in batch], dtype=np.int64)
-            frames_bgr = [frame for _, frame in batch]
-
-            logger.debug(
-                "Processing batch %d (frames %s-%s)",
-                processed_batches + 1,
-                int(frame_indices[0]),
-                int(frame_indices[-1]),
-            )
-
-            df = self._detect_from_list(frames_bgr, frame_ids=frame_indices.tolist())
-            if not df.is_empty():
-                local_indices = df.get_column("frame").to_numpy()
-                if local_indices.size and local_indices.max() < len(frame_indices):
-                    mapped = frame_indices[local_indices]
-                    df = df.with_columns(pl.Series(name="frame", values=mapped, dtype=pl.Int64))
-                results.append(df)
-
-            processed_batches += 1
-            processed_frames += len(batch)
-            batch_duration = max(1e-6, time.perf_counter() - batch_start_time)
-            fps = rate_tracker.record(len(batch), batch_duration)
-            if total_frames_meta > 0:
-                remaining_frames = max(total_frames_meta - processed_frames, 0)
-                percentage = int(min(100.0, round((processed_frames / total_frames_meta) * 100, 2)))
-                prefix = (
-                    f"Processed batch {processed_batches}/{total_batches}"
-                    if total_batches
-                    else f"Processed {processed_frames}/{total_frames_meta} frames"
-                )
-                message = format_progress_message(prefix, fps, remaining_frames)
-            else:
-                percentage = int(min(99, max(1, processed_batches)))
-                message = format_progress_message(
-                    f"Processed {processed_frames} frames",
-                    fps,
-                    None,
-                )
-            self._report_progress(percentage, message)
-            batch_start_time = time.perf_counter()
-
-        if processed_frames == 0:
-            logger.warning("No frames to process")
-            self._report_progress(100, "No frames to process")
-            return self._empty_result_df()
-
-        logger.debug("Detection complete")
-        self._report_progress(100, "Complete")
-        df = pl.concat(results, rechunk=True) if results else self._empty_result_df()
-        return df

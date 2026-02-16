@@ -434,6 +434,11 @@ class BaseTracker:
             expanded[1] = float(np.clip(expanded[1], 0.0, fh))
             expanded[2] = float(np.clip(expanded[2], 0.0, fw - expanded[0]))
             expanded[3] = float(np.clip(expanded[3], 0.0, fh - expanded[1]))
+        else:
+            expanded[0] = float(np.clip(expanded[0], 0.0, 1.0))
+            expanded[1] = float(np.clip(expanded[1], 0.0, 1.0))
+            expanded[2] = float(np.clip(expanded[2], 0.0, 1.0 - expanded[0]))
+            expanded[3] = float(np.clip(expanded[3], 0.0, 1.0 - expanded[1]))
         return expanded
 
     def _polars_to_detections(
@@ -446,13 +451,19 @@ class BaseTracker:
         if "frame_width" in frame_df.columns and "frame_height" in frame_df.columns:
             width = int(frame_df["frame_width"].item(0))
             height = int(frame_df["frame_height"].item(0))
-        frame_size = (width, height) if width is not None and height is not None else None
 
         for row in frame_df.iter_rows(named=True):
             x1 = float(row["x1"])
             y1 = float(row["y1"])
             x2 = float(row["x2"])
             y2 = float(row["y2"])
+            if width is not None and height is not None and max(x1, y1, x2, y2) > 1.0:
+                inv_w = 1.0 / max(width, 1)
+                inv_h = 1.0 / max(height, 1)
+                x1 *= inv_w
+                x2 *= inv_w
+                y1 *= inv_h
+                y2 *= inv_h
             tlwh = np.array([x1, y1, x2 - x1, y2 - y1], dtype=float)
             score = float(row.get("confidence", row.get("score", 1.0)))
             is_confident = bool(row.get("is_confident", True))
@@ -461,7 +472,7 @@ class BaseTracker:
                 frame_idx=frame_idx,
                 tlwh=tlwh,
                 score=score,
-                frame_size=frame_size,
+                frame_size=None,
                 is_confident=is_confident,
                 mask=mask,
             )

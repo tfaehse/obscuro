@@ -368,9 +368,9 @@ class TestGetConfigForArgs:
         args.low_score_threshold = None
         args.tracker_params = None
         args.tracker = None
-        args.use_sahi = None
         args.sahi_overlap = None
         args.inference_size = None
+        args.single_pass = None
         args.offline_linker = None
         args.batch_size = None
         args.video_codec = None
@@ -395,9 +395,9 @@ class TestGetConfigForArgs:
         args.low_score_threshold = None
         args.tracker_params = None
         args.tracker = None
-        args.use_sahi = None
         args.sahi_overlap = None
         args.inference_size = None
+        args.single_pass = None
         args.offline_linker = None
         args.batch_size = None
         args.video_codec = None
@@ -433,9 +433,9 @@ class TestGetConfigForArgs:
         args.blur_classes = "plate,vehicle"
         args.tracker_params = '{"distance_gate":0.55}'
         args.tracker = None
-        args.use_sahi = True
         args.sahi_overlap = 0.3
         args.inference_size = 2048
+        args.single_pass = True
         args.offline_linker = None
         args.batch_size = 12
         args.video_codec = "hevc"
@@ -451,9 +451,9 @@ class TestGetConfigForArgs:
         assert result.detection.low_score_threshold == 0.2
         assert result.detection.classes_to_blur == ["plate", "vehicle"]
         mock_set_config.assert_called_once()
-        assert result.detection.use_sahi is True
         assert result.detection.sahi_overlap_ratio == 0.3
         assert result.detection.inference_size == 2048
+        assert result.detection.single_pass is True
         assert result.detection.batch_size == 12
         assert result.tracking.params["distance_gate"] == 0.55
         assert result.video.codec == "hevc"
@@ -473,9 +473,9 @@ class TestGetConfigForArgs:
         args.low_score_threshold = None
         args.tracker_params = None
         args.tracker = None
-        args.use_sahi = None
         args.sahi_overlap = None
         args.inference_size = None
+        args.single_pass = None
         args.offline_linker = None
         args.batch_size = None
         args.video_codec = None
@@ -485,6 +485,35 @@ class TestGetConfigForArgs:
 
         result = get_config_for_args(args)
         assert isinstance(result, AnonymizerConfig)
+
+    @patch("blur_cli.cli.set_config")
+    def test_get_config_single_pass_override(self, mock_set_config):
+        """Test single-pass CLI flag override."""
+        args = Mock()
+        args.config = None
+        args.model = None
+        args.embedding_similarity_gate = None
+        args.blur_type = None
+        args.blur_strength = None
+        args.confidence_threshold = None
+        args.low_score_threshold = None
+        args.blur_classes = None
+        args.tracker_params = None
+        args.tracker = None
+        args.sahi_overlap = None
+        args.inference_size = None
+        args.single_pass = True
+        args.offline_linker = None
+        args.batch_size = None
+        args.video_codec = None
+        args.video_quality = None
+        args.config_debug = None
+        args.log_level = "INFO"
+
+        result = get_config_for_args(args)
+
+        assert result.detection.single_pass is True
+        mock_set_config.assert_called_once()
 
 
 class TestCreateConfig:

@@ -96,6 +96,7 @@ def test_model_endpoints(tmp_path, monkeypatch):
     assert model_entry["name"] in options["model"]["available"]
     assert options["model"].get("files")
     assert any("modified_at" in info for info in options["model"]["files"])
+    assert "current_single_pass" in options["detection"]
 
     # Delete the model
     res = client.delete(f"/blur/models/{filename}")

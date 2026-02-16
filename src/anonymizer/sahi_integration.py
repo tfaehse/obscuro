@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
 from typing import Any
 
 import numpy as np
@@ -123,10 +122,11 @@ class SahiOnnxDetectionModel(DetectionModel):
             metas = []
             for tile in chunk:
                 tile_image = np.asarray(tile.image)
+                starting_pixel = tile.starting_pixel
                 pre, meta = preprocess_image(tile_image, self.detector.imgsz)
                 tiles.append(pre[0])
                 metas.append(meta)
-                offsets.append((tile.starting_pixel[0], tile.starting_pixel[1]))
+                offsets.append((starting_pixel[0], starting_pixel[1]))
             batch_tensor = np.stack(tiles, axis=0)
             outputs = model.run(None, {input_name: batch_tensor})
             frame_ids = list(range(len(metas)))
@@ -321,9 +321,6 @@ class SahiOnnxDetectionModel(DetectionModel):
 
         if isinstance(self._original_predictions, pl.DataFrame):
             return self._original_predictions
-        if isinstance(self._original_predictions, Iterable):
-            # Legacy support: allow storing as list of rows.
-            return pl.DataFrame(list(self._original_predictions))
         raise TypeError("Unexpected prediction payload type from detector")
 
     @staticmethod

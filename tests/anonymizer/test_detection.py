@@ -15,7 +15,7 @@ from sahi.prediction import PredictionResult
 
 from anonymizer.cancellation import CancellationException
 from anonymizer.constants import DEFAULT_SEGMENTATION_CLASSES
-from anonymizer.detection import Detector, FrameDetector
+from anonymizer.detection import Detector
 from anonymizer.detection.utils import letterbox, preprocess_image
 from anonymizer.sahi_integration import SahiOnnxDetectionModel
 
@@ -23,7 +23,6 @@ from anonymizer.sahi_integration import SahiOnnxDetectionModel
 def _build_detector_with_session(
     session_output=None,
     *,
-    use_sahi: bool = False,
     categories_to_blur=None,
     model_classes: list[str] | None = None,
 ):
@@ -64,7 +63,6 @@ def _build_detector_with_session(
         mock_session.return_value = fake_session
         detector = Detector(
             Path("fake_model.onnx"),
-            use_sahi=use_sahi,
             categories_to_blur=categories_to_blur,
         )
 
@@ -197,9 +195,7 @@ class TestDetector:
         baseline_detector, _ = _build_detector_with_session(session_output=session_output)
         baseline_result = baseline_detector.detect(sample_image)
 
-        sahi_detector, _ = _build_detector_with_session(
-            session_output=session_output, use_sahi=True
-        )
+        sahi_detector, _ = _build_detector_with_session(session_output=session_output)
 
         def fake_predict(self, image, **kwargs):
             self.perform_inference(np.ascontiguousarray(image))
@@ -564,7 +560,7 @@ class TestDetectorAdvanced:
 
 @patch("anonymizer.detection.model.ort.InferenceSession")
 @patch("pathlib.Path.exists", return_value=True)
-def test_detector_postprocess_absolute_coordinates(mock_exists, mock_session):
+def test_detector_postprocess_relative_coordinates(mock_exists, mock_session):
     with patch(
         "anonymizer.detection.core.load_model_metadata",
         return_value={
@@ -591,10 +587,10 @@ def test_detector_postprocess_absolute_coordinates(mock_exists, mock_session):
     df = detector._postprocess(outputs, metas)
     assert df.height == 1
     row = df.row(0, named=True)
-    assert row["x1"] == pytest.approx(240.0)
-    assert row["y1"] == pytest.approx(200.0)
-    assert row["x2"] == pytest.approx(400.0)
-    assert row["y2"] == pytest.approx(280.0)
+    assert row["x1"] == pytest.approx(240.0 / 640.0)
+    assert row["y1"] == pytest.approx(200.0 / 480.0)
+    assert row["x2"] == pytest.approx(400.0 / 640.0)
+    assert row["y2"] == pytest.approx(280.0 / 480.0)
     assert row["frame_width"] == 640
     assert row["frame_height"] == 480
 
@@ -676,14 +672,14 @@ def test_detector_postprocess_transposed_output(mock_exists, mock_session):
     row = df.row(0, named=True)
     assert row["object_class"] == 0
     assert row["confidence"] == pytest.approx(0.99, abs=0.01)
-    assert row["x1"] == pytest.approx(160.0)  # 200 - 40
+    assert row["x1"] == pytest.approx(160.0 / 640.0)  # 200 - 40
 
     # Second box: class 1 (logit 10.0 -> prob ~1.0)
     row = df.row(1, named=True)
     assert row["object_class"] == 1
     assert row["confidence"] == pytest.approx(1.0, abs=0.01)
-    assert row["x1"] == pytest.approx(50.0)  # 60 - 10
-    assert row["y2"] == pytest.approx(50.0)
+    assert row["x1"] == pytest.approx(50.0 / 640.0)  # 60 - 10
+    assert row["y2"] == pytest.approx(50.0 / 480.0)
 
 
 @patch("anonymizer.detection.model.ort.InferenceSession")
@@ -713,10 +709,10 @@ def test_detector_postprocess_scales_and_clips(mock_exists, mock_session):
     df = detector._postprocess(outputs, metas)
     assert df.height == 1
     row = df.row(0, named=True)
-    assert row["x1"] == pytest.approx(160.0)
-    assert row["x2"] == pytest.approx(200.0)  # clipped to width
-    assert row["y1"] == pytest.approx(100.0)
-    assert row["y2"] == pytest.approx(200.0)  # clipped to height
+    assert row["x1"] == pytest.approx(160.0 / 200.0)
+    assert row["x2"] == pytest.approx(200.0 / 200.0)  # clipped to width
+    assert row["y1"] == pytest.approx(100.0 / 200.0)
+    assert row["y2"] == pytest.approx(200.0 / 200.0)  # clipped to height
 
 
 @patch("anonymizer.detection.model.ort.InferenceSession")
@@ -846,67 +842,6 @@ class TestDetectorImageHandling:
             assert meta["original_shape"] == (2160, 3840)
 
 
-class TestDetectorBatchProcessing:
-    """Additional coverage for batch and list detection helpers."""
-
-    def test_detect_from_batch_array_processes_batches(self):
-        detector = FrameDetector.__new__(FrameDetector)
-        detector.batch_size = 2
-        detector.cancel_event = None
-
-        call_sizes: list[int] = []
-
-        progress_updates: list[tuple[int, str]] = []
-
-        def fake_detect_from_list(images, frame_ids=None):
-            call_sizes.append(len(images))
-            return pl.DataFrame({"frame": [0] * len(images), "x1": [0.0] * len(images)})
-
-        detector._detect_from_list = fake_detect_from_list  # type: ignore[attr-defined]
-        detector._report_progress = lambda pct, msg: progress_updates.append((pct, msg))
-        detector.batch_size = 2
-
-        tensor = np.random.randint(0, 255, (3, 3, 2, 2), dtype=np.uint8)
-
-        result = detector._detect_from_batch_array(tensor)
-
-        assert call_sizes == [2, 1]
-        assert progress_updates[0] == (0, "Starting batch array processing")
-        assert progress_updates[-1] == (100, "Batch array processing complete")
-        assert result.shape == (3, 2)
-
-    def test_detect_from_batch_array_respects_cancellation(self):
-        detector = FrameDetector.__new__(FrameDetector)
-        detector.batch_size = 1
-        cancel_event = threading.Event()
-        cancel_event.set()
-        detector.cancel_event = cancel_event
-        detector._detect_from_list = lambda images: pl.DataFrame()  # type: ignore[attr-defined]
-
-        progress_updates: list[tuple[int, str]] = []
-        detector._report_progress = lambda pct, msg: progress_updates.append((pct, msg))
-
-        tensor = np.zeros((1, 3, 2, 2), dtype=np.float32)
-
-        with pytest.raises(CancellationException):
-            detector._detect_from_batch_array(tensor)
-
-        assert progress_updates[-1] == (0, "Cancelled")
-
-
-class TestDetectorListProcessing:
-    """Ensure list-based detection handles cancellation hooks."""
-
-    def test_detect_from_list_checks_cancellation_before_work(self):
-        detector = FrameDetector.__new__(FrameDetector)
-        event = threading.Event()
-        event.set()
-        detector.cancel_event = event
-
-        with pytest.raises(CancellationException):
-            detector._detect_from_list([np.zeros((4, 4, 3), dtype=np.uint8)])
-
-
 class TestDetectorPostprocess:
     """Additional coverage for post-processing and I/O helpers."""
 
@@ -937,119 +872,3 @@ class TestDetectorPostprocess:
         assert set(classes) == {0, 1}
         class0 = df.filter(pl.col("object_class") == 0)
         assert class0.get_column("confidence").item() == pytest.approx(0.9, abs=0.01)
-
-    def test_detect_from_list_runs_inference(self):
-        # Each image should produce detections
-        # For a batch of 2 images, we need output with batch dimension = 2
-        boxes_img1 = [50.0, 50.0, 10.0, 10.0, 0.1, 0.9, 0.0, 0.0]  # Class 1 high
-        boxes_img2 = [70.0, 70.0, 12.0, 12.0, 0.9, 0.1, 0.0, 0.0]  # Class 0 high
-
-        session_output = [
-            np.array(
-                [boxes_img1, boxes_img2],  # 2 boxes, one per image
-                dtype=np.float32,
-            )
-            .reshape(1, 2, 8)
-            .transpose(0, 2, 1)  # batch=1, features=8, num_boxes=2
-        ]
-        detector, fake_session = _build_detector_with_session(session_output=session_output)
-
-        def fake_preprocess(image, imgsz):
-            return (
-                np.zeros((1, 3, 2, 2), dtype=np.float32),
-                {"scale": (1.0, 1.0), "pad": (0.0, 0.0), "original_shape": image.shape[:2]},
-            )
-
-        detector.preprocess = Mock(side_effect=fake_preprocess)
-
-        images = [np.zeros((4, 4, 3), dtype=np.uint8) for _ in range(2)]
-        df = detector._detect_from_list(images, frame_ids=[0, 1])
-
-        assert df.height == 2
-        # Both detections are from the same batched inference, so they share frame 0
-        assert df.get_column("frame").to_list() == [0, 0]
-        fake_session.run.assert_called_once()
-
-    def test_detect_from_path_batches_frames(self, monkeypatch):
-        detector, _ = _build_detector_with_session()
-        detector.batch_size = 2
-
-        batch0 = pl.DataFrame(
-            {
-                "frame": [0, 1],
-                "x1": [0.0, 30.0],
-                "y1": [0.0, 30.0],
-                "x2": [20.0, 50.0],
-                "y2": [20.0, 50.0],
-                "confidence": [0.9, 0.9],
-                "object_class": [0, 0],
-                "frame_width": [100, 100],
-                "frame_height": [100, 100],
-                "is_confident": [True, True],
-            }
-        )
-        batch1 = pl.DataFrame(
-            {
-                "frame": [0],
-                "x1": [60.0],
-                "y1": [60.0],
-                "x2": [80.0],
-                "y2": [80.0],
-                "confidence": [0.8],
-                "object_class": [1],
-                "frame_width": [100],
-                "frame_height": [100],
-                "is_confident": [True],
-            }
-        )
-
-        detector._detect_from_list = Mock(side_effect=[batch0, batch1])
-        batches = [
-            [
-                (0, np.zeros((4, 4, 3), dtype=np.uint8)),
-                (1, np.zeros((4, 4, 3), dtype=np.uint8)),
-            ],
-            [
-                (2, np.zeros((4, 4, 3), dtype=np.uint8)),
-            ],
-        ]
-
-        def fake_iter_frame_batches(_path, batch_size, prefetch):
-            assert batch_size == detector.batch_size
-            yield from batches
-
-        class FakeInfo:
-            def __getitem__(self, key):
-                return {"frame_count": 100}.get(key)
-
-            def get(self, key, default=None):
-                return {"frame_count": 100}.get(key, default)
-
-        monkeypatch.setattr("anonymizer.detection.core.get_video_info", lambda path: FakeInfo())
-        monkeypatch.setattr("anonymizer.detection.core.iter_frame_batches", fake_iter_frame_batches)
-
-        result = detector._detect_from_path(Path("dummy.mp4"))
-
-        assert detector._detect_from_list.call_count == 2
-        assert sorted(result.get_column("frame").to_list()) == [0, 1, 2]
-
-    def test_detect_from_list_checks_cancellation_before_inference(self, monkeypatch):
-        detector = FrameDetector.__new__(FrameDetector)
-        event = threading.Event()
-        detector.cancel_event = event
-
-        def fake_preprocess(image, imgsz):
-            event.set()
-            return np.zeros((1, 3, 4, 4), dtype=np.float32), {
-                "scale": (1.0, 1.0),
-                "pad": (0, 0),
-                "original_shape": image.shape[:2],
-            }
-
-        detector.inference_size = 640
-        detector.imgsz = 640
-        monkeypatch.setattr("anonymizer.detection.core.preprocess_image", fake_preprocess)
-        detector._empty_result_df = lambda: pl.DataFrame()  # type: ignore[attr-defined]
-
-        with pytest.raises(CancellationException):
-            detector._detect_from_list([np.zeros((4, 4, 3), dtype=np.uint8)])

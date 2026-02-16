@@ -21,6 +21,7 @@ from anonymizer.tracking.utils import (
     clamp_bbox,
     cosine_similarities,
     crop_patch,
+    relative_tlwh_to_pixels,
     update_weighted_embedding,
 )
 from anonymizer.utils.geometry import iou_tlwh
@@ -55,28 +56,11 @@ def _create_visual_tracker(backend: str) -> cv2.Tracker | None:
 
     constructors = []
     if backend == "csrt":
-        constructors.extend(
-            [
-                getattr(cv2, "TrackerCSRT_create", None),
-                getattr(cv2, "legacy_TrackerCSRT", None),
-            ]
-        )
+        constructors.append(getattr(cv2, "TrackerCSRT_create", None))
     elif backend == "kcf":
-        constructors.extend(
-            [
-                getattr(cv2, "TrackerKCF_create", None),
-                getattr(cv2, "legacy_TrackerKCF", None),
-            ]
-        )
-    elif backend in {"siam", "siamrpn"}:
-        constructors.append(getattr(cv2, "TrackerMIL_create", None))
+        constructors.append(getattr(cv2, "TrackerKCF_create", None))
     else:
-        constructors.extend(
-            [
-                getattr(cv2, "TrackerCSRT_create", None),
-                getattr(cv2, "legacy_TrackerCSRT", None),
-            ]
-        )
+        constructors.append(getattr(cv2, "TrackerCSRT_create", None))
 
     for ctor in constructors:
         if callable(ctor):
@@ -228,6 +212,19 @@ class HybridSOTTracker(FusedTracker):
 
     # Association inherited from FusedTracker
 
+    @staticmethod
+    def _pixel_tlwh_to_relative(
+        tlwh: tuple[float, float, float, float] | np.ndarray,
+        frame_shape: tuple[int, ...],
+    ) -> np.ndarray | None:
+        if len(frame_shape) < 2:
+            return None
+        h_max, w_max = frame_shape[:2]
+        if h_max <= 0 or w_max <= 0:
+            return None
+        x, y, w, h = np.asarray(tlwh, dtype=float).reshape(-1)[:4]
+        return np.array([x / w_max, y / h_max, w / w_max, h / h_max], dtype=float)
+
     def _update_track(self, track: ActiveTrack, det: Detection, frame_idx: int) -> None:
         super()._update_track(track, det, frame_idx)
         if not self.params.use_visual_tracker:
@@ -246,9 +243,9 @@ class HybridSOTTracker(FusedTracker):
         tracker = _create_visual_tracker(self.params.vt_backend)
         if tracker is None:
             return
-        tlwh = np.asarray(det.tlwh, dtype=float).reshape(-1)
-        x, y, w, h = (round(v) for v in tlwh[:4])
-        bbox = (x, y, max(1, w), max(1, h))
+        bbox = relative_tlwh_to_pixels(det.tlwh, frame.shape)
+        if bbox is None:
+            return
         bbox = self._inflate_bbox(bbox, frame.shape, scale=1.2)
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
@@ -331,7 +328,9 @@ class HybridSOTTracker(FusedTracker):
                             frame_idx,
                             bbox,
                         )
-                    tlwh = np.array([bbox[0], bbox[1], bbox[2], bbox[3]], dtype=float)
+                    tlwh = self._pixel_tlwh_to_relative(bbox, frame.shape)
+                    if tlwh is None:
+                        return
                     if self._within_drift_gate(track, tlwh):
                         if self._promote_low_conf_candidate(track, frame_idx, tlwh):
                             return
@@ -375,12 +374,9 @@ class HybridSOTTracker(FusedTracker):
     def _within_drift_gate(self, track: ActiveTrack, tlwh: np.ndarray) -> bool:
         if self.params.drift_gate <= 0:
             return True
-        frame_size = track.frame_size
-        if not frame_size or frame_size[0] <= 0 or frame_size[1] <= 0:
-            return True
         predicted = track.current_tlwh()
-        pred_center = normalized_center(predicted, frame_size)
-        det_center = normalized_center(tlwh, frame_size)
+        pred_center = normalized_center(predicted, None)
+        det_center = normalized_center(tlwh, None)
         if pred_center is None or det_center is None:
             return True
         drift = float(np.linalg.norm(det_center - pred_center))

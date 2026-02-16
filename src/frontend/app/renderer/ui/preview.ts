@@ -266,9 +266,9 @@ export class PreviewUI {
             confidence_threshold: config.detection.confidence_threshold,
             low_score_threshold: config.detection.low_score_threshold,
             batch_size: config.detection.batch_size,
-            use_sahi: config.detection.use_sahi,
             inference_size: config.detection.inference_size,
             sahi_overlap_ratio: config.detection.sahi_overlap_ratio,
+            single_pass: config.detection.single_pass,
             classes_to_blur: config.detection.classes_to_blur,
           },
           tracking: {

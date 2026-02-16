@@ -95,10 +95,6 @@ class DetectionConfig(BaseModel):
         le=256,
         description="Number of frames/images processed per detector forward pass (higher can improve throughput on GPU)",
     )
-    use_sahi: bool = Field(
-        default=True,
-        description="Enable SAHI tiled inference (suitable for high-resolution frames)",
-    )
     disable_masks: bool = Field(
         default=False,
         description="If true, skip segmentation masks and use bounding boxes only",
@@ -114,6 +110,10 @@ class DetectionConfig(BaseModel):
         ge=0.0,
         lt=1.0,
         description="Fractional overlap for SAHI tiles (0-1)",
+    )
+    single_pass: bool = Field(
+        default=False,
+        description="Force SAHI single-tile mode (overrides inference_size to model tile size and overlap to 0)",
     )
     classes_to_blur: list[str] = Field(
         default_factory=lambda: list(DEFAULT_BLUR_CATEGORIES),
@@ -477,8 +477,7 @@ def with_overrides(
     """
     Return a new config with the provided overrides applied.
 
-    Supports both nested dict overrides ({"detection": {"use_sahi": True}})
-    and dotted/double-underscore keys (detection__use_sahi=True).
+    Supports both nested dict overrides and dotted/double-underscore keys.
     """
     if not override_maps and not override_kwargs:
         return config
@@ -546,9 +545,9 @@ strength = 10
 confidence_threshold = 0.5
 low_score_threshold = 0.1
 batch_size = 8
-# use_sahi = false
 # inference_size = 1920
 # sahi_overlap_ratio = 0.2
+# single_pass = true
 classes_to_blur = ["plate", "head"]
 
 [tracking]

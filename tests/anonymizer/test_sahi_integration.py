@@ -39,7 +39,7 @@ def test_downscale_for_sahi_skips_small_frames():
 
 
 def test_object_predictions_dataframe_applies_shifts_and_scaling():
-    detector, _fake_session = _build_detector_with_session(use_sahi=True)
+    detector, _fake_session = _build_detector_with_session()
     predictions = [
         _make_prediction(10, 20, 30, 40, score=0.8, category_id=0, shift=(5, 7)),
     ]
@@ -60,7 +60,7 @@ def test_object_predictions_dataframe_applies_shifts_and_scaling():
     assert row["frame_height"] == 200
 
 
-def _build_detector_with_session(session_output=None, *, use_sahi: bool = False):
+def _build_detector_with_session(session_output=None):
     if session_output is None:
         session_output = [
             np.array(
@@ -92,6 +92,6 @@ def _build_detector_with_session(session_output=None, *, use_sahi: bool = False)
         fake_session.run.return_value = session_output
         fake_session.get_providers.return_value = ["CPUExecutionProvider"]
         mock_session.return_value = fake_session
-        detector = Detector(Path("fake_model.onnx"), use_sahi=use_sahi)
+        detector = Detector(Path("fake_model.onnx"))
 
     return detector, fake_session
