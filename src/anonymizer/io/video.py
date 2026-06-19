@@ -130,7 +130,8 @@ def blur_video_av(
         v_out.height = v_in.height
         v_out.pix_fmt = "yuv420p"
         v_out.bit_rate = v_in.bit_rate
-        output_time_base = Fraction(1, round(fps))
+        # Use input time_base to handle high-framerate videos (e.g., 59.94fps)
+        output_time_base = v_in.time_base
         v_out.time_base = output_time_base
         if hasattr(v_in, "rate"):
             v_out.rate = v_in.rate
@@ -153,6 +154,12 @@ def blur_video_av(
                 with contextlib.suppress(Exception):
                     v_out.codec_context.options["crf"] = str(int(quality))
 
+        # Calculate proper PTS increment for high-framerate videos
+        # For 60000/1001 fps at 1/60000 time_base, each frame needs 1001 ticks
+        pts_increment = (
+            fps_rate.denominator if fps_rate.numerator == output_time_base.denominator else 1
+        )
+
         frame_number = 0
         for frame_idx, _, _, img_cpu in iter_frames_with_metadata(
             input_path, prefetch=_ENCODE_PREFETCH
@@ -162,7 +169,7 @@ def blur_video_av(
                 raise ValueError("Blur function must return numpy array")
             out_frame = av.VideoFrame.from_ndarray(processed_img, format="rgb24")
             out_frame.time_base = output_time_base
-            out_frame.pts = frame_number
+            out_frame.pts = frame_number * pts_increment
             for encoded in v_out.encode(out_frame):
                 out_container.mux(encoded)
             frame_number += 1
