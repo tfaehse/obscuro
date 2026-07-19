@@ -25,6 +25,8 @@ const TRACKER_PRESETS: Record<string, TrackerParams> = {
     vt_backend: 'TrackerNano',
     drift_gate: 0.15,
     process_noise: 1,
+    bidirectional_merge_iou_threshold: 0.3,
+    bidirectional_confidence_weight: 0.6,
   },
   bytetrack: {
     distance_gate: 0.05,
@@ -46,6 +48,8 @@ const TRACKER_PRESETS: Record<string, TrackerParams> = {
     vt_backend: 'TrackerNano',
     drift_gate: 0.15,
     process_noise: 1,
+    bidirectional_merge_iou_threshold: 0.3,
+    bidirectional_confidence_weight: 0.6,
   },
   botsort: {
     distance_gate: 0.4,
@@ -67,6 +71,8 @@ const TRACKER_PRESETS: Record<string, TrackerParams> = {
     vt_backend: 'TrackerNano',
     drift_gate: 0.15,
     process_noise: 1,
+    bidirectional_merge_iou_threshold: 0.3,
+    bidirectional_confidence_weight: 0.6,
   },
   hybrid_sot: {
     distance_gate: 0.05,
@@ -88,6 +94,8 @@ const TRACKER_PRESETS: Record<string, TrackerParams> = {
     vt_backend: 'TrackerNano',
     drift_gate: 0.05,
     process_noise: 1,
+    bidirectional_merge_iou_threshold: 0.3,
+    bidirectional_confidence_weight: 0.6,
   },
   fused: {
     distance_gate: 0.1,
@@ -109,6 +117,8 @@ const TRACKER_PRESETS: Record<string, TrackerParams> = {
     vt_backend: 'TrackerNano',
     drift_gate: 0.05,
     process_noise: 1,
+    bidirectional_merge_iou_threshold: 0.3,
+    bidirectional_confidence_weight: 0.6,
   },
 };
 
@@ -228,6 +238,8 @@ export class ConfigController {
         type: options.tracking.current_type as any,
         use_offline_linker: options.tracking.use_offline_linker ?? current.tracking.use_offline_linker,
         params: { ...options.tracking.params },
+        bidirectional_mode: current.tracking.bidirectional_mode ?? false,
+        bidirectional_base_tracker: current.tracking.bidirectional_base_tracker ?? 'bytetrack',
       },
       video: {
         codec: options.video.current_codec,

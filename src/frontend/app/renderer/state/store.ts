@@ -219,7 +219,11 @@ export class Store {
           process_noise: 1,
           offline_linker_max_misses: 30,
           offline_linker_per_frame_gate: 0.05,
+          bidirectional_merge_iou_threshold: 0.3,
+          bidirectional_confidence_weight: 0.6,
         },
+        bidirectional_mode: false,
+        bidirectional_base_tracker: 'bytetrack',
       },
       video: { codec: 'h264', quality: null }, // quality null => backend auto; user can override
       debug: false,

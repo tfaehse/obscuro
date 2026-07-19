@@ -279,32 +279,50 @@ class Blurrer:
                 score = det.get("confidence")
                 label = None
                 if isinstance(score, int | float):
-                    label = f"{score:.2f}"
+                    label = f"DET:{score:.2f}"
                 self._draw_box(frame, det, (0, 0, 255), label=label)
-        # Draw tracks (blue) with masks if available
+        # Draw tracks with masks and origin-based colors
         if tracks:
             track_masks: list[MaskRegion | None] = []
             if self.mask_decoder:
                 with contextlib.suppress(Exception):
                     track_masks = self.mask_decoder.decode_masks_for_rows(tracks, frame.shape[:2])
             for idx, track in enumerate(tracks):
+                # Get origin and determine color
+                origin = track.get("origin", "forward")
+                if origin == "forward":
+                    color = (255, 100, 0)  # Orange for forward-only
+                elif origin == "backward":
+                    color = (0, 255, 0)  # Green for backward-only
+                elif origin == "merged":
+                    color = (255, 0, 255)  # Purple/magenta for merged
+                else:
+                    color = (255, 0, 0)  # Red fallback
+
                 if track_masks and idx < len(track_masks):
-                    self._draw_mask(frame, track_masks[idx], (255, 0, 0))
+                    self._draw_mask(frame, track_masks[idx], color)
                 else:
                     mask_region = self._decode_mask_payload(
                         track.get("mask"), frame.shape, track, frame_num=int(track.get("frame", 0))
                     )
-                    self._draw_mask(frame, mask_region, (255, 0, 0))
-                label_value = track.get("track_id")
-                label = str(label_value) if label_value is not None else None
-                raw_color = track.get("debug_color")
-                if raw_color is not None:
-                    if isinstance(raw_color, list | tuple) and len(raw_color) == 3:
-                        color = tuple(int(c) for c in raw_color)
-                    else:
-                        color = (255, 0, 0)
-                else:
-                    color = (255, 0, 0)
+                    self._draw_mask(frame, mask_region, color)
+
+                # Create expressive label with ID, score, and origin
+                track_id = track.get("track_id")
+                score = track.get("score")
+                label_parts = []
+                if track_id is not None:
+                    label_parts.append(f"ID:{int(track_id)}")
+                if isinstance(score, int | float):
+                    label_parts.append(f"{score:.2f}")
+                if origin == "forward":
+                    label_parts.append("FWD")
+                elif origin == "backward":
+                    label_parts.append("BWD")
+                elif origin == "merged":
+                    label_parts.append("MRG")
+                label = " ".join(label_parts) if label_parts else None
+
                 self._draw_box(frame, track, color, label=label)
 
     def _draw_box(

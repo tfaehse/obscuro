@@ -32,7 +32,7 @@ export interface DetectionConfig {
   classes_to_blur: string[];
 }
 
-export type TrackerType = 'dummy' | 'bytetrack' | 'botsort' | 'hybrid_sot' | 'fused' | 'oc_sort';
+export type TrackerType = 'dummy' | 'bytetrack' | 'botsort' | 'hybrid_sot' | 'fused' | 'oc_sort' | 'bidirectional';
 
 export interface TrackerParams {
   distance_gate: number;
@@ -54,12 +54,16 @@ export interface TrackerParams {
   vt_backend: string;
   drift_gate: number;
   process_noise: number;
+  bidirectional_merge_iou_threshold: number;
+  bidirectional_confidence_weight: number;
 }
 
 export interface TrackingConfig {
   type: TrackerType;
   params: TrackerParams;
   use_offline_linker: boolean;
+  bidirectional_mode: boolean;
+  bidirectional_base_tracker: TrackerType;
 }
 
 export interface VideoConfig {

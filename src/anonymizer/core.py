@@ -101,15 +101,33 @@ class Anonymizer(CancellationMixin):
 
         # Create tracker using factory (video_source will be set later)
         tracker_kwargs = self.config.get_tracker_kwargs()
-        self.tracker = TrackerFactory.get(
-            name=self.config.tracking.type,
-            video_source=None,  # Will be set before tracking
-            cancel_event=self.cancel_event,
-            progress_callback=self.progress_callback,
-            confidence_threshold=self.config.detection.confidence_threshold,
-            low_score_threshold=self.config.detection.low_score_threshold,
-            **tracker_kwargs,
-        )
+
+        # Handle bidirectional mode
+        if self.config.tracking.bidirectional_mode:
+            from .tracking import BidirectionalTracker
+
+            # For bidirectional mode, use BidirectionalTracker wrapper
+            # with the configured base tracker
+            self.tracker = BidirectionalTracker(
+                video_source=None,  # Will be set before tracking
+                params=tracker_kwargs["params"],  # TrackerParams instance
+                cancel_event=self.cancel_event,
+                progress_callback=self.progress_callback,
+                confidence_threshold=self.config.detection.confidence_threshold,
+                low_score_threshold=self.config.detection.low_score_threshold,
+                base_tracker_type=self.config.tracking.bidirectional_base_tracker,
+            )
+        else:
+            # Use regular tracker
+            self.tracker = TrackerFactory.get(
+                name=self.config.tracking.type,
+                video_source=None,  # Will be set before tracking
+                cancel_event=self.cancel_event,
+                progress_callback=self.progress_callback,
+                confidence_threshold=self.config.detection.confidence_threshold,
+                low_score_threshold=self.config.detection.low_score_threshold,
+                **tracker_kwargs,
+            )
         self.tracker.progress_callback = self.progress_callback
 
         self._offline_linker_tracks = None

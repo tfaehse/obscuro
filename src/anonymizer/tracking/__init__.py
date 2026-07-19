@@ -4,6 +4,8 @@ from typing import Any
 
 from anonymizer.config import TrackerParams
 
+from .base import BaseTracker
+from .bidirectional import BidirectionalTracker
 from .botsort import BotSortTracker
 from .bytetrack import ByteTrackTracker
 from .dummy import DummyTracker
@@ -19,6 +21,7 @@ TRACKER_FACTORY = {
     "hybrid_sot": HybridSOTTracker,
     "fused": FusedTracker,
     "oc_sort": OCSortTracker,
+    "bidirectional": BidirectionalTracker,
 }
 
 

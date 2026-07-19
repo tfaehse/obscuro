@@ -287,6 +287,8 @@ export class PreviewUI {
             type: config.tracking.type,
             use_offline_linker: config.tracking.use_offline_linker,
             params: { ...config.tracking.params },
+            bidirectional_mode: config.tracking.bidirectional_mode ?? false,
+            bidirectional_base_tracker: config.tracking.bidirectional_base_tracker ?? 'bytetrack',
           },
           video: { codec: config.video.codec, quality: (config.video.quality ?? null) },
           debug: config.debug,

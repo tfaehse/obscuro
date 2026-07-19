@@ -42,6 +42,7 @@ class TrackerType(str, Enum):
     HYBRID_SOT = "hybrid_sot"
     FUSED = "fused"
     OC_SORT = "oc_sort"
+    BIDIRECTIONAL = "bidirectional"
 
 
 class ModelConfig(BaseModel):
@@ -147,6 +148,9 @@ class TrackerParams(BaseModel):
     vt_backend: str = Field("TrackerNano")
     drift_gate: float = Field(0.15, ge=0.0, le=2.0)
     process_noise: float = Field(1.0, ge=0.0, le=10.0)
+    # Bidirectional tracking parameters
+    bidirectional_merge_iou_threshold: float = Field(0.3, ge=0.0, le=1.0)
+    bidirectional_confidence_weight: float = Field(0.6, ge=0.0, le=1.0)
 
     @classmethod
     def for_tracker(
@@ -234,6 +238,13 @@ class TrackingConfig(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict, description="Effective tracker parameters")
     use_offline_linker: bool = Field(
         default=True, description="Run an offline linking pass after tracking"
+    )
+    bidirectional_mode: bool = Field(
+        default=False, description="Run bidirectional tracking (forward + backward passes)"
+    )
+    bidirectional_base_tracker: TrackerType = Field(
+        default=TrackerType.BYTETRACK,
+        description="Underlying tracker for bidirectional mode",
     )
 
     _applied_type: TrackerType | None = PrivateAttr(default=None)

@@ -17,6 +17,14 @@ class TrackState(str, Enum):
     DEAD = "dead"
 
 
+class TrackOrigin(str, Enum):
+    """Origin of a track observation for debug visualization."""
+
+    FORWARD_ONLY = "forward"
+    BACKWARD_ONLY = "backward"
+    MERGED = "merged"
+
+
 @dataclass(slots=True)
 class Detection:
     """Lightweight detection container (tlwh format in normalized coordinates)."""
@@ -47,6 +55,7 @@ class TrackObservation:
     frame_size: tuple[int, int] | None = None
     debug_color: tuple[int, int, int] | None = None
     mask: int | None = None
+    origin: TrackOrigin = TrackOrigin.FORWARD_ONLY
 
     def as_dict(self, *, include_debug: bool = False) -> dict[str, Any]:
         x, y, w, h = self.tlwh.tolist()
@@ -74,8 +83,10 @@ class TrackObservation:
                 else {}
             ),
         }
-        if include_debug and self.debug_color is not None:
-            data["debug_color"] = tuple(self.debug_color)
+        if include_debug:
+            if self.debug_color is not None:
+                data["debug_color"] = tuple(self.debug_color)
+            data["origin"] = self.origin.value
         return data
 
 

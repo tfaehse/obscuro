@@ -210,6 +210,8 @@ CLI_TO_CONFIG_MAP: dict[str, str] = {
     "single_pass": "detection.single_pass",
     "disable_masks": "detection.disable_masks",
     "tracker": "tracking.type",
+    "bidirectional": "tracking.bidirectional_mode",
+    "bidirectional_base_tracker": "tracking.bidirectional_base_tracker",
     "offline_linker": "tracking.use_offline_linker",
     "video_codec": "video.codec",
     "video_quality": "video.quality",
@@ -537,12 +539,25 @@ Examples:
         )
         subparser.add_argument(
             "--tracker",
-            choices=["dummy", "bytetrack", "botsort", "hybrid_sot", "fused"],
+            choices=["dummy", "bytetrack", "botsort", "hybrid_sot", "fused", "bidirectional"],
             help="Tracker to use (overrides config file)",
         )
         subparser.add_argument(
             "--tracker-params",
             help="JSON object with tracker parameter overrides (e.g. '{\"distance_gate\":0.15}')",
+        )
+        subparser.add_argument(
+            "--bidirectional",
+            dest="bidirectional",
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help="Enable or disable bidirectional tracking mode (default: disabled)",
+        )
+        subparser.add_argument(
+            "--bidirectional-base-tracker",
+            dest="bidirectional_base_tracker",
+            choices=["dummy", "bytetrack", "botsort", "hybrid_sot", "fused", "oc_sort"],
+            help="Base tracker for bidirectional mode (default: bytetrack)",
         )
         subparser.add_argument(
             "--offline-linker",
